@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions" # See documentation for possible values
+    directory: "/" # Location of package manifests
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"
+    
+  - package-ecosystem: "gradle" # See documentation for possible values
+    directory: "/resttestgen" # Location of package manifests
+    schedule:
+      interval: "monthly"
+    groups:
+      resttestgen-dependencies:
+        patterns:
+          - "*"
