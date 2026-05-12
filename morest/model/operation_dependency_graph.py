@@ -4,7 +4,6 @@ from typing import Dict, List, Tuple
 import loguru
 from graphviz import Digraph
 
-from algo.chatgpt_agent import ChatGPTAgent
 from model.api import API
 from model.match_rule.base_rule import Rule
 from model.match_rule.substr_rule import SubStringRule
@@ -131,44 +130,6 @@ class OperationDependencyGraph:
         sequence_list = []
         for producer in self.producer_consumer_map:
             sequence_list += self._generate_sequence(producer, Sequence())
-        return sequence_list
-
-    def generate_sequence_by_chatgpt(
-        self, test_sequence_list: List[List[str]]
-    ) -> List[Sequence]:
-        """
-        Generate sequence by chatgpt
-        :param test_sequence_list: List[List[str]]
-        :return: List[Sequence]
-        """
-        sequence_list = []
-        for test_sequence_line in test_sequence_list:
-            sequence = Sequence()
-            for test_sequence in test_sequence_line:
-                consumer = self._find_method_by_name(test_sequence)
-                if consumer is None:
-                    continue
-                sequence.add_method(consumer)
-                # check has dependency
-                for producer_index, producer in enumerate(
-                    sequence.method_sequence[:-1]
-                ):
-                    if (producer, consumer) in self.producer_consumer_to_edge_map:
-                        dependency = InContextParameterDependency()
-                        dependency.producer = producer
-                        dependency.consumer = consumer
-                        dependency.producer_index = producer_index
-                        dependency.consumer_index = len(sequence.method_sequence) - 1
-                        for parameter_dependency in self.producer_consumer_to_edge_map[
-                            (producer, consumer)
-                        ].parameter_dependency_list:
-                            dependency.add_parameter_dependency(parameter_dependency)
-                        sequence.add_parameter_dependency(dependency)
-            if len(sequence.method_sequence) == 0:
-                continue
-            sequence.is_from_chatgpt = True
-            sequence_list.append(sequence)
-
         return sequence_list
 
     def _generate_single_method_sequence(self) -> List[Sequence]:

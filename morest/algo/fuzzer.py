@@ -6,7 +6,6 @@ from typing import Dict, List, Set, Tuple
 
 import loguru
 
-from algo.chatgpt_agent import ChatGPTAgent
 from algo.sequence_converter import SequenceConverter
 from analysis.base_analysis import Analysis
 from analysis.result_writer_analysis import ResultWriterAnalysis
@@ -34,7 +33,6 @@ class Fuzzer:
         self.graph: OperationDependencyGraph = graph
         self.config: FuzzerConfig = config
         self.time_budget: float = config.time_budget
-        self.chatgpt_agent: ChatGPTAgent = ChatGPTAgent(self)
         self.sequence_list: List[Sequence] = []
         self.sequence_converter: SequenceConverter = SequenceConverter(self)
         self.data_generation_config: DataGenerationConfig = DataGenerationConfig()
@@ -44,7 +42,6 @@ class Fuzzer:
         self.never_success_method_set: Set[Method] = set()
         self.pending_request_list: List[Request] = []
         self.operation_id_to_method_map: Dict[str, Method] = {}
-        self.chatgpt_operation_id_to_method_map: Dict[str, Method] = {}
         self.pending_sequence_list: List[Sequence] = []
         self.single_method_sequence_list: List[Sequence] = []
 
@@ -59,7 +56,6 @@ class Fuzzer:
 
         for method in self.graph.method_list:
             self.operation_id_to_method_map[method.operation_id] = method
-            self.chatgpt_operation_id_to_method_map[f'{method.method_type.value.upper()}{method.method_path}'] = method
 
         logger.info(f"generated {len(self.sequence_list)} sequences")
 
@@ -105,11 +101,6 @@ class Fuzzer:
         converter = self.sequence_converter
 
         while self.begin_time + self.time_budget > time.time():
-            # handle the case that all methods are never success
-            if self.config.enable_chatgpt and len(self.never_success_method_set) > 0:
-                for method in self.never_success_method_set:
-                    self.chatgpt_agent.task_queue.put(method)
-
             # convert sequence to request
             for sequence in self.sequence_list:
                 converter.convert(sequence)

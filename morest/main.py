@@ -25,7 +25,6 @@ parser.add_argument("--yaml_path", type=str, default=yaml_path)
 parser.add_argument("--time_budget", type=float, default=600)
 parser.add_argument("--warm_up_times", type=int, default=5)
 parser.add_argument("--url", type=str, default="https://restcountries.com")
-parser.add_argument("--chatgpt", type=bool, default=False)
 parser.add_argument("--output_dir", type=str, default="output")
 parser.add_argument("--rl", type=bool, default=True)
 args = parser.parse_args()
@@ -92,7 +91,6 @@ def main(task_config: TaskConfig):
     config.time_budget = task_config.time_budget
     config.warm_up_times = task_config.warm_up_times
     config.url = task_config.url
-    config.enable_chatgpt = task_config.chatgpt
     config.output_dir = task_config.output_dir
     config.enable_reinforcement_learning = task_config.rl
     fuzzer = Fuzzer(odg, config)

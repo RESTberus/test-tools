@@ -22,7 +22,6 @@ class Sequence:
     producer_index_to_dependency_map: Dict[
         int, List[InContextAttributeDependency]
     ] = dataclasses.field(default_factory=dict)
-    is_from_chatgpt: bool = False
     sequence_id: str = dataclasses.field(default_factory=lambda: str(uuid.uuid4()))
 
     def add_method(self, method: Method):
