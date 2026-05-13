@@ -29,7 +29,7 @@ FROM python:3.12-slim-bookworm AS runtime
 WORKDIR /app
 
 # Copy built JAR from build stage
-COPY --from=java-builder /app/build/libs/*-all.jar ./rtg.jar
+COPY --from=java-builder /app/build/libs/*-all.jar ./resttestgen.jar
 
 # Copy venv from python-builder stage
 COPY --from=python-builder /opt/venv /opt/venv

@@ -14,9 +14,9 @@ FROM eclipse-temurin:17-jre-jammy AS runtime
 WORKDIR /app
 
 # Copy built JAR from build stage
-COPY --from=builder /app/build/libs/*-all.jar ./rtg.jar
+COPY --from=builder /app/build/libs/*-all.jar ./resttestgen.jar
 
 # Copy config files
 COPY rtg-config.yml ./
 
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar rtg.jar"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar resttestgen.jar"]
