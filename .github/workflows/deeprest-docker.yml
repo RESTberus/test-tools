@@ -60,7 +60,7 @@ jobs:
           SOURCE_DATE_EPOCH: 0
         with:
           context: ./resttestgen
-          file: ./resttestgen/DeepREST.Dockerfile
+          file: ./resttestgen/DeepREST.dockerfile
           push: true
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
           cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}
