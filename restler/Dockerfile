@@ -24,3 +24,11 @@ RUN /venv/bin/pip install applicationinsights requests
 ENV PATH="/venv/bin:$PATH"
 
 COPY --from=builder /build /RESTler
+
+ENV TARGET_URL=http://localhost:8000 \
+    TIME_BUDGET_SECONDS=600 \
+    SPEC_PATH=/app/api_spec.json
+
+WORKDIR /RESTler
+
+CMD ["/bin/sh", "-c", "sh", "start.sh"]
