@@ -17,6 +17,6 @@ WORKDIR /app
 COPY --from=builder /app/build/libs/*-all.jar ./rtg.jar
 
 # Copy config files
-COPY rtg-config.yaml ./
+COPY rtg-config.yml ./
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar rtg.jar"]

@@ -1,4 +1,4 @@
-name: Build RestTestGen docker image
+name: Build DeepREST docker image
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - "resttestgen/**"
+      - ".github/workflows/deeprest-docker.yml"
 
 permissions:
   contents: read
@@ -58,8 +59,8 @@ jobs:
         env:
           SOURCE_DATE_EPOCH: 0
         with:
-          context: ./${{ env.IMAGE_NAME }}
-          file: ./${{ env.IMAGE_NAME }}/DeepREST.Dockerfile
+          context: ./resttestgen
+          file: ./resttestgen/DeepREST.Dockerfile
           push: true
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
           cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}
