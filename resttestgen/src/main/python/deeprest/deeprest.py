@@ -1,5 +1,8 @@
 from stable_baselines3 import PPO
 from api_env import ApiEnv
+import random 
+
+random.seed(42)
 
 EPISODE_LENGTH_MULTIPLIER = 20
 

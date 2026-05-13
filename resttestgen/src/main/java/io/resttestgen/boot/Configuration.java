@@ -32,6 +32,7 @@ public class Configuration {
     private final List<String> qualifiableParameterNames;
     private boolean globalOutputPath;
     private String odgFileName;
+    private long randomSeed;
 
     /**
      * Initializes the default configuration
@@ -53,6 +54,8 @@ public class Configuration {
         strategyClassName = "NominalAndErrorStrategy";
 
         odgFileName = "odg.dot";
+
+        randomSeed = 42;
 
         qualifiableParameterNames = new ArrayList<>();
         qualifiableParameterNames.add("id");
@@ -94,6 +97,14 @@ public class Configuration {
 
     public void setStrategyClassName(String strategyClassName) {
         this.strategyClassName = strategyClassName;
+    }
+
+    public long getRandomSeed() {
+        return randomSeed;
+    }
+
+    public void setRandomSeed(long randomSeed) {
+        this.randomSeed = randomSeed;
     }
 
     public void setResultsLocation(String location) {
