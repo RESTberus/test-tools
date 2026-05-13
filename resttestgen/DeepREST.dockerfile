@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Stage 3: Runtime (Stable Baslines 3 Python + RestTestGen Java)
 FROM python:3.12-slim-bookworm AS runtime
 
-WORKDIR /app
+WORKDIR /tool
 
 # Copy built JAR from build stage
 COPY --from=java-builder /app/build/libs/*-all.jar ./resttestgen.jar
@@ -38,12 +38,12 @@ COPY --from=python-builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy Python source from host
-COPY ./src/main/python/deeprest /app
+COPY ./src/main/python/deeprest /tool
 
 RUN apt-get update && apt-get install -y openjdk-17-jre-headless && rm -rf /var/lib/apt/lists/*
 
 RUN chmod +x entrypoint.sh
 
-RUN mkfifo /app/j2p /app/p2j
+RUN mkfifo /tool/j2p /tool/p2j
 
 ENTRYPOINT ["./entrypoint.sh"]
