@@ -28,7 +28,7 @@ module LogCollection =
         let userName =
             match System.Environment.UserName with
             | name when String.IsNullOrEmpty name ->
-                let id = (new Random()).Next()
+                let id = (new Random(42)).Next()
                 sprintf "unnamed_%d" id
             | name -> name
         let dateFormat = "MM-dd-yyyy_hhmmsstt";

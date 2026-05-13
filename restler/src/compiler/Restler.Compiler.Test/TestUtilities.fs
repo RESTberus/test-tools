@@ -34,7 +34,7 @@ let getLineDifferences grammar1FilePath grammar2FilePath =
 
 
 let rootTestOutputDirectoryPath = Path.Combine(Path.GetTempPath(), "restlerTest")
-let private random = Random()
+let private random = Random(42)
 let getRandomGrammarOutputDirectoryPath() =
     Path.Combine(rootTestOutputDirectoryPath, random.Next(1000000).ToString())
 
