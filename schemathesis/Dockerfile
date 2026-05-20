@@ -18,7 +18,10 @@ RUN uv venv /app/.venv
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=100 \
+    UV_LINK_MODE=copy
 
 COPY pyproject.toml README.md ./
 RUN mkdir -p src/schemathesis && \
