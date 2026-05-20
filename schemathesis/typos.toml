@@ -1,0 +1,17 @@
+[default]
+extend-ignore-re = [
+    "DELET",
+    "RESTFul",
+    "parametrized",
+    "worke",
+    "secon",
+    "\\{Nd\\}",
+    # UUID-shaped literals
+    "[0-9a-fg-]{36}",
+]
+
+[default.extend-words]
+Nd = "Nd"
+
+[files]
+extend-exclude = ["test-corpus/__snapshots__/*/*.json", "test/config/__snapshots__/*/*.raw"]
