@@ -1,9 +1,7 @@
 # venv setup
 FROM python:3.14.5-alpine3.23 AS app-builder
 
-WORKDIR /app
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /bin/
 
 RUN apk add --no-cache \
         gcc \
@@ -14,14 +12,17 @@ RUN apk add --no-cache \
         cargo \
         rust
 
-RUN uv venv /opt/venv
+WORKDIR /app
+
+RUN uv venv /app/.venv
+ENV VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 COPY pyproject.toml README.md ./
-
 RUN mkdir -p src/schemathesis && \
     touch src/schemathesis/__init__.py
-
-ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 
 RUN uv pip install --no-cache-dir ".[allure]" tracecov==0.20.1
 
@@ -29,17 +30,13 @@ COPY src ./src
 
 RUN uv pip install --no-cache-dir --no-deps --force-reinstall ./
 
-RUN find /opt/venv -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete && \
-    find /opt/venv -type d -name __pycache__ -delete
 
 # Runtime
 FROM python:3.14.5-alpine3.23 AS runtime
 
-LABEL Name=Schemathesis
-
 WORKDIR /app
 
-COPY --from=app-builder /opt/venv /opt/venv
+COPY --from=app-builder /app/.venv /app/.venv
 
 RUN apk add --no-cache ca-certificates libgcc libstdc++ sqlite-libs
 
@@ -53,12 +50,13 @@ RUN printf 'import os\nif os.environ.get("SCHEMATHESIS_COVERAGE", "true").lower(
 
 USER schemathesis
 
-ENV PATH="/opt/venv/bin:$PATH"
-ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/app/.venv/bin:$PATH" \
+    VIRTUAL_ENV=/app/.venv \
+    PYTHON_GIL=0 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-ENV PYTHON_GIL=0
-ENV SCHEMATHESIS_COVERAGE=true
-ENV SCHEMATHESIS_DOCKER_IMAGE=3.14t-alpine
-ENV SCHEMATHESIS_HOOKS=/app/hooks.py
+ENV SCHEMATHESIS_COVERAGE=true \ 
+    SCHEMATHESIS_HOOKS=/app/hooks.py
 
 ENTRYPOINT ["schemathesis"]
