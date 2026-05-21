@@ -1,5 +1,4 @@
 pyyaml
-prance
-openapi-spec-validator
+prance[osv]
 rstr
 requests==2.28.2
