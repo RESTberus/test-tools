@@ -1,5 +1,5 @@
 # venv setup
-FROM python:3.14.5-alpine3.23 AS app-builder
+FROM ghcr.io/restberus/python:3.14.5-alpine-3.23 AS app-builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /bin/
 
@@ -35,7 +35,7 @@ RUN uv pip install --no-cache-dir --no-deps --force-reinstall ./
 
 
 # Runtime
-FROM python:3.14.5-alpine3.23 AS runtime
+FROM ghcr.io/restberus/python:3.14.5-alpine-3.23 AS runtime
 
 WORKDIR /app
 
