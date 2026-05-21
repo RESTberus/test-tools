@@ -9,7 +9,7 @@ COPY src/ ./src/
 RUN gradle clean build -x test
 
 # Stage 2: Python dependencies
-FROM python:3.12-slim-bookworm AS python-builder
+FROM ghcr.io/restberus/python:3.14.5-debian-13.5-slim AS python-builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Stage 3: Runtime (Stable Baslines 3 Python + RestTestGen Java)
-FROM python:3.12-slim-bookworm AS runtime
+FROM ghcr.io/restberus/python:3.14.5-debian-13.5-slim-jre17 AS runtime
 
 WORKDIR /tool
 
@@ -35,12 +35,12 @@ COPY --from=java-builder /app/build/libs/*-all.jar ./resttestgen.jar
 COPY --from=python-builder /opt/venv /opt/venv
 
 # Set environment variables to use the venv
-ENV PATH="/opt/venv/bin:$PATH"
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 # Copy Python source from host
 COPY ./src/main/python/deeprest /tool
-
-RUN apt-get update && apt-get install -y openjdk-17-jre-headless && rm -rf /var/lib/apt/lists/*
 
 RUN chmod +x entrypoint.sh
 
