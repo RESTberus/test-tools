@@ -264,6 +264,7 @@ GENERATION_SEED = OptionSpec(
     "generation_seed",
     help="Random seed for reproducible test runs",
     type=int,
+    envvar="RANDOM_SEED",
 )
 
 GENERATION_DETERMINISTIC = OptionSpec(

@@ -190,7 +190,7 @@ class DataGenerator:
                 res = datetime.datetime.now().isoformat("T")
                 return res
             elif string_format == "uuid":
-                res = uuid.uuid4().__str__()
+                res = uuid.UUID(int=random.getrandbits(128)).__str__()
                 return res
             elif string_format == "password":
                 res = "testpassword"

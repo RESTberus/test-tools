@@ -1,12 +1,13 @@
 import typing
 from random import Random
+import os
 import time
 import string
 import itertools
 from datetime import datetime
 import sys
 
-random_seed=time.time()
+random_seed=int(os.environ.get('RANDOM_SEED', 42))
 global random_gen
 random_gen = Random(random_seed)
 print(f"Invalid value generator random seed: {random_seed}")

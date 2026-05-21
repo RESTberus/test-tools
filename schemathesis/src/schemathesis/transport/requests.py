@@ -4,6 +4,7 @@ import binascii
 import inspect
 import json
 import os
+import random
 from collections.abc import Mapping, MutableMapping
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, cast
@@ -280,7 +281,7 @@ def _prepare_form_data(data: dict[str, Any]) -> dict[str, Any]:
 
 def choose_boundary() -> str:
     """Random boundary name."""
-    return binascii.hexlify(os.urandom(16)).decode("ascii")
+    return binascii.hexlify(random.randbytes(16)).decode("ascii")
 
 
 def _encode_multipart(value: Any, boundary: str) -> bytes:

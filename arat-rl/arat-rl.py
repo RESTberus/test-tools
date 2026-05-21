@@ -76,7 +76,7 @@ def get_value(param_type, operation=None, parameter=None, object_definition=None
                 return ''.join(random.choice(characters) for _ in range(random_password_length))
             elif param_format == 'byte':
                 random_byte_length = random.randint(1, 10)
-                return base64.b64encode(os.urandom(random_byte_length)).decode('utf-8')
+                return base64.b64encode(random.randbytes(random_byte_length)).decode('utf-8')
             elif param_format == 'binary':
                 random_binary_length = random.randint(1, 10)
                 return ''.join(random.choice(['0', '1']) for _ in range(random_binary_length))
@@ -731,6 +731,10 @@ def main():
         iteration += 1
 
 if __name__ == "__main__":
+    # Standardize random seed
+    RANDOM_SEED = int(os.environ.get("RANDOM_SEED", 42))
+    random.seed(RANDOM_SEED)
+
     base_url = sys.argv[2]
     EPSILON = [0.1]
     ss = [None]

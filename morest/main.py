@@ -1,6 +1,7 @@
 import argparse
 import glob
 import random
+import numpy as np
 from typing import List
 
 import loguru
@@ -81,7 +82,10 @@ def parsing(api_document_path: str) -> List[API]:
 def main(task_config: TaskConfig):
     apis = parsing(task_config.yaml_path)
 
-    random.seed(42)
+    # Standardize random seed
+    RANDOM_SEED = int(os.environ.get("RANDOM_SEED", 42))
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
 
     # build odg
     odg = OperationDependencyGraph(apis)

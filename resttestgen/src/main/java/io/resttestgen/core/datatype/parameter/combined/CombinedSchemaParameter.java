@@ -227,7 +227,7 @@ public abstract class CombinedSchemaParameter extends Parameter {
         }
 
         List<Integer> indexes = new LinkedList<>();
-        Random random = new Random();
+        Random random = io.resttestgen.core.Environment.getInstance().getRandom();
 
         while (numberOfSchemas-- > 0) {
             int index = random.nextInt(schemaIndexes.size());

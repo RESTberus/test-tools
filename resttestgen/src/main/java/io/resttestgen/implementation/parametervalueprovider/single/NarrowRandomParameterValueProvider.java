@@ -13,7 +13,17 @@ import kotlin.Pair;
  */
 public class NarrowRandomParameterValueProvider extends ParameterValueProvider {
 
-    private static final ExtendedRandom random = Environment.getInstance().getRandom();
+    private static final ExtendedRandom random;
+    static {
+        long seed = 42;
+        String envSeed = System.getenv("RANDOM_SEED");
+        if (envSeed != null) {
+            try {
+                seed = Long.parseLong(envSeed);
+            } catch (NumberFormatException ignored) {}
+        }
+        random = new ExtendedRandom(seed);
+    }
 
     private static final double NUMBER_LOWER_BOUND = -10.0;
     private static final double NUMBER_UPPER_BOUND = 150.0;

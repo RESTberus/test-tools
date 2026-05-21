@@ -56,6 +56,12 @@ public class Configuration {
         odgFileName = "odg.dot";
 
         randomSeed = 42;
+        String envSeed = System.getenv("RANDOM_SEED");
+        if (envSeed != null) {
+            try {
+                randomSeed = Long.parseLong(envSeed);
+            } catch (NumberFormatException ignored) {}
+        }
 
         qualifiableParameterNames = new ArrayList<>();
         qualifiableParameterNames.add("id");

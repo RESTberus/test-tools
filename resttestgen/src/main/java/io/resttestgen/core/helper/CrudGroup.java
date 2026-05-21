@@ -54,7 +54,7 @@ public class CrudGroup {
 
     // Returns a random operation among those with a given CRUD semantics
     public Operation pickRandomOperation(OperationSemantics operationSemantics) {
-        Random random = new Random(); // FIXME: use global random
+        Random random = io.resttestgen.core.Environment.getInstance().getRandom();
         List<Operation> matchingOperations = operations.stream()
                 .filter(o -> o.getCrudSemantics() == operationSemantics).collect(Collectors.toList());
         return matchingOperations.get(random.nextInt(matchingOperations.size()));

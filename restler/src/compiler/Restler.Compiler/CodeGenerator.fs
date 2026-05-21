@@ -1310,7 +1310,7 @@ let generateCode (grammar:GrammarDefinition) includeOptionalParameters (write : 
 let generateCustomValueGenTemplate dictionaryText =
     // Go through the json properties and modify all leaf values to None, then
     // add the sample function for fuzzable string.
-    let imports = ["typing"; "random"; "time"; "string"; "itertools"]
+    let imports = ["typing"; "random"; "time"; "string"; "itertools"; "os"]
     let constants = """
 EXAMPLE_ARG = "examples"
 """
@@ -1397,7 +1397,7 @@ def %s(**kwargs):
         for i in imports do
             yield sprintf "import %s" i
 
-        yield "random_seed=time.time()"
+        yield "random_seed=int(os.environ.get('RANDOM_SEED', 42))"
         yield """print(f"Value generator random seed: {random_seed}")"""
         yield "random.seed(random_seed)"
         yield constants

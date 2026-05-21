@@ -527,7 +527,7 @@ class RestlerSettings(object):
         self._poll_async_delete_status = SettingsArg('wait_for_async_delete_completion', bool, False, user_args)
 
         ## The random seed to use (may be overridden by checker-specific random seeds)
-        self._random_seed = SettingsArg('random_seed', int, 12345, user_args, minval=0)
+        self._random_seed = SettingsArg('random_seed', int, int(os.environ.get('RANDOM_SEED', 42)), user_args, minval=0)
         ## Generate a new random seed instead of using the one specified
         ## When specified, the seed will be used for all of the checkers as well.
         self._generate_random_seed = SettingsArg('generate_random_seed', bool, False, user_args)

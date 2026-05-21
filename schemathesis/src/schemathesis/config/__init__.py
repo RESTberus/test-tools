@@ -134,7 +134,7 @@ class SchemathesisConfig(DiffBase):
     @property
     def seed(self) -> int:
         if self._seed is None:
-            self._seed = Random().getrandbits(128)
+            self._seed = int(os.environ.get("RANDOM_SEED", 42))
         return self._seed
 
     @property
