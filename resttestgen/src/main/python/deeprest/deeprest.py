@@ -1,8 +1,13 @@
 from stable_baselines3 import PPO
 from api_env import ApiEnv
-import random 
+import random
+import numpy as np
+import os
 
-random.seed(42)
+seed = os.getenv('RANDOM_SEED', '42')
+seed = int(seed)
+random.seed(seed)
+np.random.seed(seed)
 
 EPISODE_LENGTH_MULTIPLIER = 20
 
@@ -20,7 +25,8 @@ model = PPO(
     policy='MlpPolicy',
     env=env,
     verbose=1,
-    n_steps=steps
+    n_steps=steps,
+    seed=seed,
 )
 
 model.learn(total_timesteps=102400)
