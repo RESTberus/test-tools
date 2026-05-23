@@ -33,6 +33,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 ENV TARGET_URL=http://localhost:8000 \
     TIME_BUDGET_SECONDS=600 \
+    PYTHON_GIL=0 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
     YAML_PATH=/app/api_spec.yaml
 
 CMD ["python", "main.py", "--target-url", "${TARGET_URL}", "--time-budget-seconds", "${TIME_BUDGET_SECONDS}", "--yaml-path", "${YAML_PATH}"]
