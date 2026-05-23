@@ -15,6 +15,11 @@ import datetime
 import functools
 from collections import defaultdict
 
+# Per-request timeout (seconds). Without it, a single slow/hung response blocks
+# the whole fuzzing loop indefinitely (requests has no default timeout), which
+# caps the run at a handful of requests over the entire time budget.
+REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "10"))
+
 
 
 def generate_object(object_definition, operation):
@@ -193,43 +198,43 @@ def execute_operations(base_url, selected_operation, selected_parameters):
             if content_type == 'application/x-www-form-urlencoded':
                 try:
                     if method == 'get':
-                        return requests.get(url, params=query_params, headers=headers, data=body_params)
+                        return requests.get(url, params=query_params, headers=headers, data=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'post':
-                        return requests.post(url, params=query_params, headers=headers, data=body_params)
+                        return requests.post(url, params=query_params, headers=headers, data=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'put':
-                        return requests.put(url, params=query_params, headers=headers, data=body_params)
+                        return requests.put(url, params=query_params, headers=headers, data=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'delete':
-                        return requests.delete(url, params=query_params, headers=headers, data=body_params)
+                        return requests.delete(url, params=query_params, headers=headers, data=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'patch':
-                        return requests.patch(url, params=query_params, headers=headers, data=body_params)
+                        return requests.patch(url, params=query_params, headers=headers, data=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'head':
-                        return requests.head(url, headers=headers, params=query_params)
+                        return requests.head(url, headers=headers, params=query_params, timeout=REQUEST_TIMEOUT)
                 except Exception:
                     if method == 'get':
-                        return requests.get(url, params=query_params, headers=headers, json=body_params)
+                        return requests.get(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'post':
-                        return requests.post(url, params=query_params, headers=headers, json=body_params)
+                        return requests.post(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'put':
-                        return requests.put(url, params=query_params, headers=headers, json=body_params)
+                        return requests.put(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'delete':
-                        return requests.delete(url, params=query_params, headers=headers, json=body_params)
+                        return requests.delete(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'patch':
-                        return requests.patch(url, params=query_params, headers=headers, json=body_params)
+                        return requests.patch(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                     elif method == 'head':
-                        return requests.head(url, headers=headers, params=query_params)
+                        return requests.head(url, headers=headers, params=query_params, timeout=REQUEST_TIMEOUT)
             else:
                 if method == 'get':
-                    return requests.get(url, params=query_params, headers=headers, json=body_params)
+                    return requests.get(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                 elif method == 'post':
-                    return requests.post(url, params=query_params, headers=headers, json=body_params)
+                    return requests.post(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                 elif method == 'put':
-                    return requests.put(url, params=query_params, headers=headers, json=body_params)
+                    return requests.put(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                 elif method == 'delete':
-                    return requests.delete(url, params=query_params, headers=headers, json=body_params)
+                    return requests.delete(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                 elif method == 'patch':
-                    return requests.patch(url, params=query_params, headers=headers, json=body_params)
+                    return requests.patch(url, params=query_params, headers=headers, json=body_params, timeout=REQUEST_TIMEOUT)
                 elif method == 'head':
-                    return requests.head(url, headers=headers, params=query_params)
+                    return requests.head(url, headers=headers, params=query_params, timeout=REQUEST_TIMEOUT)
         except requests.exceptions.RequestException as e:
             print(f"Request error: {e}")
             return None
