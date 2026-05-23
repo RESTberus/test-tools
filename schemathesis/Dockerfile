@@ -29,7 +29,7 @@ ENV VIRTUAL_ENV=/app/.venv \
 RUN mkdir -p src/schemathesis && \
     touch src/schemathesis/__init__.py
 
-RUN uv pip install --no-cache-dir tracecov==0.20.1
+RUN uv pip install --no-cache-dir tracecov==0.20.1 .
 
 COPY src ./src
 
