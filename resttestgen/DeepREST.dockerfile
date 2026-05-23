@@ -13,15 +13,15 @@ FROM ghcr.io/restberus/python:3.14.5-debian-13.5-slim AS python-builder
 
 WORKDIR /app
 
-# Copy requirements first to leverage Docker cache
-COPY ./src/main/python/deeprest/requirements.txt ./
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Copy dependencies definitions
+COPY ./src/main/python/deeprest/pyproject.toml ./src/main/python/deeprest/uv.lock ./
 
-# Pre-install torch from the CPU-only index to prevent downloading NVIDIA CUDA libraries
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir -r requirements.txt
+# Sync dependencies into /opt/venv
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+RUN uv sync --frozen --no-install-project --no-dev
 
 # Stage 3: Runtime (Stable Baslines 3 Python + RestTestGen Java)
 FROM ghcr.io/restberus/python:3.14.5-debian-13.5-slim-jre17 AS runtime
@@ -36,8 +36,9 @@ COPY --from=python-builder /opt/venv /opt/venv
 
 # Set environment variables to use the venv
 ENV PATH="/opt/venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHON_GIL=0 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 # Copy Python source from host
 COPY ./src/main/python/deeprest /tool

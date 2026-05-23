@@ -1,0 +1,17 @@
+[project]
+name = "deeprest"
+version = "0.1.0"
+description = "DeepREST Python component"
+requires-python = ">=3.9"
+dependencies = [
+    "stable-baselines3==2.7.0",
+    "torch",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
