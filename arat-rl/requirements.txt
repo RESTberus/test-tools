@@ -1,4 +1,0 @@
-pyyaml
-prance[osv]
-rstr
-requests==2.28.2

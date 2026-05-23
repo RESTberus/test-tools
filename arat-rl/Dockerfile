@@ -33,10 +33,11 @@ FROM ghcr.io/restberus/python:3.14.5-alpine-3.23 AS runner
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
-COPY arat-rl.py verify_setup.py ./
+COPY src/arat-rl.py src/verify_setup.py ./
 
 ENV PATH="/app/.venv/bin:$PATH" \
     VIRTUAL_ENV=/app/.venv \
+    PYTHON_GIL=0 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
