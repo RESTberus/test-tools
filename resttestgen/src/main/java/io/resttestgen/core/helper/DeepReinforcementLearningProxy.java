@@ -17,16 +17,16 @@ public class DeepReinforcementLearningProxy {
 
     private static final Logger logger = LogManager.getLogger(DeepReinforcementLearningProxy.class);
 
-    private static String P2J_PIPE = "/p2j";
-    private static String J2P_PIPE = "/j2p";
+    private static String P2J_PIPE = "p2j";
+    private static String J2P_PIPE = "j2p";
 
     public static void initializeDeepReinforcementLearning(@NotNull List<String> namedPipesPaths, @NotNull Integer numOperations) {
         for (String namedPipesPath : namedPipesPaths) {
-            Path p2jPipePath = Paths.get(namedPipesPath + P2J_PIPE);
-            Path j2pPipePath = Paths.get(namedPipesPath + J2P_PIPE);
+            Path p2jPipePath = Paths.get(namedPipesPath, "p2j");
+            Path j2pPipePath = Paths.get(namedPipesPath, "j2p");
             if (Files.exists(p2jPipePath) && Files.exists(j2pPipePath)) {
-                P2J_PIPE = namedPipesPath + P2J_PIPE;
-                J2P_PIPE = namedPipesPath + J2P_PIPE;
+                P2J_PIPE = p2jPipePath.toString();
+                J2P_PIPE = j2pPipePath.toString();
                 break;
             }
         }

@@ -7,7 +7,7 @@ import java.util.List;
 public class DeepReinforcementLearningStrategyConfiguration extends StrategyConfiguration {
 
     private long timeBudget = 3700;
-    private List<String> namedPipesPaths = List.of("/app", "./src/main/python/deeprest");
+    private List<String> namedPipesPaths = List.of(".", "/tool", "/app", "./src/main/python/deeprest");
     private boolean disableDrl = false;
     private boolean intensification = true;
     private int intensificationProbability = 2; // 0-100

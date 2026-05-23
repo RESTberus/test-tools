@@ -43,6 +43,10 @@ ENV PATH="/opt/venv/bin:$PATH" \
 # Copy Python source from host
 COPY ./src/main/python/deeprest /tool
 
+# Copy config files
+COPY rtg-config.yml ./rtg-config.yml
+COPY strategy-config.yml ./strategy-config.yml
+
 RUN chmod +x entrypoint.sh
 
 RUN mkfifo /tool/j2p /tool/p2j

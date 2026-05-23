@@ -15,7 +15,7 @@ PYTHON_PID=$!
 sleep 2
 
 echo "Starting RestTestGen with DeepREST strategy..."
-java $JAVA_OPTS -jar resttestgen.jar -s DeepRestStrategy &
+java $JAVA_OPTS -jar resttestgen.jar -a experiment-api -s DeepRestStrategy &
 JAVA_PID=$!
 
 # Wait ONLY for Java to exit, then cleanup will kill Python
