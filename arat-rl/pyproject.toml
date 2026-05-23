@@ -3,10 +3,11 @@ name = "arat-rl"
 version = "0.1.0"
 description = "ARAT-RL is a tool designed to find internal server errors in REST APIs using reinforcement learning."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
-    "prance[osv]>=23.6.21.0",
+    "prance[osv]>=25.04.08.0",
+    "openapi-spec-validator>=0.7.1",
     "pyyaml>=6.0.3",
-    "requests>=2.28.2",
+    "requests>=2.32.0",
     "rstr>=3.2.2",
 ]

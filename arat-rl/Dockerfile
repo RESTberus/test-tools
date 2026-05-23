@@ -26,7 +26,7 @@ ENV VIRTUAL_ENV=/app/.venv \
 # Install dependencies
 COPY pyproject.toml uv.lock .python-version ./
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync --no-install-project --no-dev
 
 # Runtime stage
 FROM ghcr.io/restberus/python:3.14.5-alpine-3.23 AS runner
