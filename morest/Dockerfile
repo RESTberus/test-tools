@@ -1,4 +1,4 @@
-FROM ghcr.io/restberus/python:3.14.5-debian-13.5-slim AS builder
+FROM python:3.11.15-alpine3.23 AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev --compile-bytecode
 
 
-FROM ghcr.io/restberus/python:3.14.5-debian-13.5-slim AS runner
+FROM python:3.11.15-alpine3.23 AS runner
 
 # Set workdir
 WORKDIR /app
