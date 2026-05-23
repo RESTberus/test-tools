@@ -24,7 +24,7 @@ ENV VIRTUAL_ENV=/app/.venv \
     PYTHONUNBUFFERED=1
 
 # Install dependencies
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock .python-version ./
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 RUN uv sync --frozen --no-install-project --no-dev
 

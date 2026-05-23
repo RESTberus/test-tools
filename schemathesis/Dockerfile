@@ -14,6 +14,8 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
+COPY pyproject.toml README.md .python-version ./
+
 RUN uv venv /app/.venv
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH" \
@@ -21,9 +23,9 @@ ENV VIRTUAL_ENV=/app/.venv \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=100 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
-COPY pyproject.toml README.md ./
 RUN mkdir -p src/schemathesis && \
     touch src/schemathesis/__init__.py
 
@@ -32,7 +34,6 @@ RUN uv pip install --no-cache-dir tracecov==0.20.1
 COPY src ./src
 
 RUN uv pip install --no-cache-dir --no-deps --force-reinstall ./
-
 
 # Runtime
 FROM ghcr.io/restberus/python:3.14.5-alpine-3.23 AS runtime

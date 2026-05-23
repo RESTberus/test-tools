@@ -17,7 +17,7 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Copy dependencies definitions
-COPY ./src/main/python/deeprest/pyproject.toml ./src/main/python/deeprest/uv.lock ./
+COPY ./src/main/python/deeprest/.python-version ./src/main/python/deeprest/pyproject.toml ./src/main/python/deeprest/uv.lock ./
 
 # Sync dependencies into /opt/venv
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
