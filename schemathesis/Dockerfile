@@ -27,7 +27,7 @@ COPY pyproject.toml README.md ./
 RUN mkdir -p src/schemathesis && \
     touch src/schemathesis/__init__.py
 
-RUN uv pip install --no-cache-dir ".[allure]" tracecov==0.20.1
+RUN uv pip install --no-cache-dir tracecov==0.20.1
 
 COPY src ./src
 
