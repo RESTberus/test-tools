@@ -24,8 +24,9 @@ ENV VIRTUAL_ENV=/app/.venv \
     PYTHONUNBUFFERED=1
 
 # Install dependencies
-COPY requirements.txt ./
-RUN uv pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml uv.lock ./
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+RUN uv sync --frozen --no-install-project --no-dev
 
 # Runtime stage
 FROM ghcr.io/restberus/python:3.14.5-alpine-3.23 AS runner
@@ -37,7 +38,6 @@ COPY src/arat-rl.py src/verify_setup.py ./
 
 ENV PATH="/app/.venv/bin:$PATH" \
     VIRTUAL_ENV=/app/.venv \
-    PYTHON_GIL=0 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
