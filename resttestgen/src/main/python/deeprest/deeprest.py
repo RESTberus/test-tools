@@ -3,11 +3,14 @@ from api_env import ApiEnv
 import random
 import numpy as np
 import os
+import gc
 
 seed = os.getenv('RANDOM_SEED', '42')
 seed = int(seed)
 random.seed(seed)
 np.random.seed(seed)
+
+gc.enable()
 
 EPISODE_LENGTH_MULTIPLIER = 20
 

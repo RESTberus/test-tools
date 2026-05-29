@@ -11,7 +11,7 @@ RUN gradle clean build -x test
 # Stage 2: Runtime (Eclipse Temurin 17 JRE)
 FROM eclipse-temurin:17-jre-jammy AS runtime
 
-ENV JAVA_TOOL_OPTIONS="-XX:+UseSerialGC -XX:+UseContainerSupport"
+ENV JAVA_TOOL_OPTIONS="-XX:+UseSerialGC -XX:+UseContainerSupport -Xmx512m -Xms256m"
 
 WORKDIR /tool
 

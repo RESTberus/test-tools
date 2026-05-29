@@ -2,9 +2,6 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 import os
-import random 
-
-random.seed(42)
 
 PRINT_LOG = False
 OBS_MAX = 20 # It's an uint8! Choose 0-255
