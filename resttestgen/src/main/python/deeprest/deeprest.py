@@ -30,6 +30,7 @@ model = PPO(
     verbose=1,
     n_steps=steps,
     seed=seed,
+    device="cpu"
 )
 
 model.learn(total_timesteps=102400)
