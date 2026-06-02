@@ -25,11 +25,15 @@ class ApiEnv(gym.Env):
         except:
             pass
 
+        # Open pipes persistently
+        print("Waiting for Java to connect to pipes.")
+        self.j2p_fifo = open('j2p', 'r')
+        self.p2j_fifo = open('p2j', 'w')
+
         # Wait for number of available actions from Java
         print("Waiting for size of action space from Java.")
-        with open('j2p', 'r') as read_fifo:
-            line = read_fifo.read()
-        self.actions_count = int(line)
+        line = self.j2p_fifo.readline()
+        self.actions_count = int(line.strip())
         print(f"Received number of actions: {self.actions_count}")
         if (self.actions_count > 999):
             print("WARNING: more than 999 actions! Fix string encoding in step method.")
@@ -49,16 +53,15 @@ class ApiEnv(gym.Env):
             print(f"Next action is: {action}")
 
         # Send chosen action to Java
-        with open('p2j', 'w') as write_fifo:
-            write_fifo.write(f'{action:04}')
+        self.p2j_fifo.write(f'{action:04}')
+        self.p2j_fifo.flush()
 
         if PRINT_LOG:
             print("Action sent! Waiting for outcome from Java.")
 
         # Read outcome from Java
-        with open('j2p', 'r') as read_fifo:
-            line = read_fifo.read()
-        status_code = int(line)
+        line = self.j2p_fifo.readline()
+        status_code = int(line.strip())
 
         if PRINT_LOG:
             print(f"Operation tested with status code: {status_code}")
@@ -85,8 +88,15 @@ class ApiEnv(gym.Env):
 
     def render(self):
         return
+    
+    def __del__(self):
+        self.close()
 
     def close(self):
+        if hasattr(self, 'j2p_fifo') and self.j2p_fifo:
+            self.j2p_fifo.close()
+        if hasattr(self, 'p2j_fifo') and self.p2j_fifo:
+            self.p2j_fifo.close()
         return
 
     def compute_observation_and_reward(self, action, status_code):

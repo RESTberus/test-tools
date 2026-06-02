@@ -19,6 +19,8 @@ public class DeepReinforcementLearningProxy {
 
     private static String P2J_PIPE = "p2j";
     private static String J2P_PIPE = "j2p";
+    private static FileInputStream p2jStream = null;
+    private static FileOutputStream j2pStream = null;
 
     public static void initializeDeepReinforcementLearning(@NotNull List<String> namedPipesPaths, @NotNull Integer numOperations) {
         for (String namedPipesPath : namedPipesPaths) {
@@ -31,9 +33,10 @@ public class DeepReinforcementLearningProxy {
             }
         }
         try {
-            FileOutputStream fos = new FileOutputStream(J2P_PIPE);
-            fos.write(numOperations.toString().getBytes());
-            fos.close();
+            j2pStream = new FileOutputStream(J2P_PIPE);
+            j2pStream.write((numOperations.toString() + "\n").getBytes());
+            j2pStream.flush();
+            p2jStream = new FileInputStream(P2J_PIPE);
         } catch (IOException e) {
             logger.error(e);
         }
@@ -42,13 +45,14 @@ public class DeepReinforcementLearningProxy {
     @NotNull
     public static Integer getAction() {
         try {
-            FileInputStream fis = new FileInputStream(P2J_PIPE);
             byte[] content = new byte[4];
-            fis.read(content, 0, 4);
-            fis.close();
-            String nextActionString = new String(content);
+            int bytesRead = p2jStream.read(content, 0, 4);
+            if (bytesRead < 4) {
+                logger.warn("Read less than 4 bytes from p2jStream");
+            }
+            String nextActionString = new String(content).trim();
             return Integer.parseInt(nextActionString);
-        } catch (IOException e) {
+        } catch (IOException | NumberFormatException e) {
             logger.error(e);
             return 0;
         }
@@ -56,9 +60,8 @@ public class DeepReinforcementLearningProxy {
 
     public static void sendResult(@NotNull HttpStatusCode statusCode) {
         try {
-            FileOutputStream fos = new FileOutputStream(J2P_PIPE);
-            fos.write(statusCode.toString().getBytes());
-            fos.close();
+            j2pStream.write((statusCode.toString() + "\n").getBytes());
+            j2pStream.flush();
         } catch (IOException e) {
             logger.error(e);
         }
