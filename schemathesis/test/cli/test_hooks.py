@@ -1,105 +1,113 @@
 import pytest
+import requests
+import werkzeug
 from _pytest.main import ExitCode
 
 
-def test_before_call(ctx, cli):
-    api = ctx.openapi.apps.success()
-    # When the `before_call` hook is registered
-    module = ctx.write_pymodule(
-        """
-@schemathesis.hook
-def before_call(context, case, **kwargs):
-    1 / 0
-        """
-    )
-    result = cli.main("run", api.schema_url, hooks=module)
-    assert result.exit_code == ExitCode.TESTS_FAILED, result.stdout
-    # Then it should be called before each `case.call`
-    assert "division by zero" in result.stdout
+@pytest.mark.operations("success")
+def test_custom_cli_handlers(testdir, cli, schema_url, app):
+    # When `after_init_cli_run_handlers` redefines handlers
+    module = testdir.make_importable_pyfile(
+        hook="""
+    import click
+    import schemathesis
+    from schemathesis.cli.handlers import EventHandler
+    from schemathesis.runner import events
 
+    class SimpleHandler(EventHandler):
 
-def test_before_call_no_kwargs_unpacking(ctx, cli):
-    api = ctx.openapi.apps.success()
-    module = ctx.write_pymodule(
-        """
-@schemathesis.hook
-def before_call(context, case, kwargs):
-    kwargs["allow_redirects"] = False
-        """
+        def handle_event(self, context, event):
+            if isinstance(event, events.Finished):
+                click.echo("Done!")
+
+    @schemathesis.hook
+    def after_init_cli_run_handlers(
+        context,
+        handlers,
+        execution_context
+    ):
+        handlers[:] = [SimpleHandler()]
+    """
     )
-    result = cli.main("run", api.schema_url, hooks=module)
+
+    result = cli.main("run", schema_url, hooks=module.purebasename)
+
+    # Then CLI should run successfully
     assert result.exit_code == ExitCode.OK, result.stdout
+    # And the output should contain only the input from the new handler
+    assert result.stdout.strip() == "Done!"
 
 
-def test_after_call(ctx, cli, snapshot_cli):
-    api = ctx.openapi.apps.success()
+@pytest.mark.openapi_version("3.0")
+@pytest.mark.operations("success")
+def test_before_call(testdir, cli, cli_args):
+    # When the `before_call` hook is registered
+    module = testdir.make_importable_pyfile(
+        hook="""
+import schemathesis
+
+note = print  # To avoid linting error
+
+@schemathesis.hook
+def before_call(context, case):
+    note("\\nBefore!")
+    case.query = {"q": "42"}
+        """
+    )
+    result = cli.main("run", *cli_args, hooks=module.purebasename)
+    assert result.exit_code == ExitCode.OK, result.stdout
+    # Then it should be called before each `case.call`
+    assert "Before!" in result.stdout.splitlines()
+
+
+@pytest.mark.openapi_version("3.0")
+@pytest.mark.operations("success")
+def test_after_call(testdir, cli, cli_args, snapshot_cli):
     # When the `after_call` hook is registered
     # And it modifies the response and making it incorrect
-    module = ctx.write_pymodule(
-        """
+    module = testdir.make_importable_pyfile(
+        hook="""
+import schemathesis
 import requests
 
 @schemathesis.hook
 def after_call(context, case, response):
     data = b'{"wrong": 42}'
-    response.content = data
+    if isinstance(response, requests.Response):
+        response._content = data
+    else:
+        response.set_data(data)
         """
     )
     # Then the tests should fail
-    assert cli.main("run", api.schema_url, "-c", "all", hooks=module) == snapshot_cli
+    assert cli.main("run", *cli_args, "-c", "all", hooks=module.purebasename) == snapshot_cli
 
 
-def test_hook_execution_error(ctx, cli, snapshot_cli):
-    api = ctx.openapi.apps.success()
-    # When a hook raises an exception during schema initialization
-    module = ctx.write_pymodule(
-        """
-@schemathesis.hook
-def before_init_operation(context, operation):
-    raise AttributeError("test hook error")
-        """
-    )
-    # Then it should be reported as a hook error, not a schema error
-    assert cli.main("run", api.schema_url, hooks=module) == snapshot_cli
-
-
-def test_hooks_file_path(ctx, cli, tmp_path):
-    api = ctx.openapi.apps.success()
-    # When SCHEMATHESIS_HOOKS points to an absolute file path
-    hooks_file = tmp_path / "my_hooks.py"
-    hooks_file.write_text("""
+@pytest.mark.openapi_version("3.0")
+@pytest.mark.operations("success")
+def test_process_call_kwargs(testdir, cli, cli_args, mocker, app_type):
+    # When the `process_call_kwargs` hook is registered
+    # And it modifies `kwargs` by adding a new key there
+    module = testdir.make_importable_pyfile(
+        hook="""
 import schemathesis
+import requests
+
 @schemathesis.hook
-def before_call(context, case, **kwargs):
-    1 / 0
-""")
-    result = cli.main("run", api.schema_url, env={"SCHEMATHESIS_HOOKS": str(hooks_file)})
-    assert result.exit_code == ExitCode.TESTS_FAILED, result.stdout
-    assert "division by zero" in result.stdout
-
-
-def test_hooks_file_path_unloadable(ctx, cli, tmp_path):
-    api = ctx.openapi.apps.success()
-    # When SCHEMATHESIS_HOOKS points to a file path with an unknown extension
-    # that Python cannot determine a loader for (spec is None)
-    hooks_file = tmp_path / "my_hooks.xyz"
-    hooks_file.write_text("# hooks")
-    result = cli.main("run", api.schema_url, env={"SCHEMATHESIS_HOOKS": str(hooks_file)})
-    assert result.exit_code == 1, result.stdout
-    assert "Unable to load Schemathesis extension hooks" in result.stdout
-    assert "Cannot load hooks from:" in result.stdout
-
-
-@pytest.mark.snapshot(replace_reproduce_with=True)
-def test_filter_case_rejects_all(ctx, cli, snapshot_cli):
-    api = ctx.openapi.apps.success()
-    # When the `filter_case` hook rejects all generated test cases
-    module = ctx.write_pymodule(
+def process_call_kwargs(context, case, kwargs):
+    if case.app is not None:
+        kwargs["follow_redirects"] = False
+    else:
+        kwargs["allow_redirects"] = False
         """
-@schemathesis.hook
-def filter_case(context, case):
-    return False
-"""
     )
-    # Then it should be reported as a hook error, not a schema error
-    assert cli.main("run", api.schema_url, "--max-examples=10", hooks=module) == snapshot_cli
+    if app_type == "real":
+        spy = mocker.spy(requests.Session, "request")
+    else:
+        spy = mocker.spy(werkzeug.Client, "open")
+    result = cli.main("run", *cli_args, hooks=module.purebasename)
+    assert result.exit_code == ExitCode.OK, result.stdout
+    if app_type == "real":
+        assert spy.call_args[1]["allow_redirects"] is False
+    else:
+        assert spy.call_args[1]["follow_redirects"] is False

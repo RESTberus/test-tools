@@ -1,8 +1,17 @@
 import platform
 
 import pytest
+from hypothesis import HealthCheck, Phase, given, settings
 
-from test.utils import flaky
+import schemathesis
+from schemathesis import DataGenerationMethod, contrib
+
+
+@pytest.fixture
+def unique_data():
+    contrib.unique_data.install()
+    yield
+    contrib.unique_data.uninstall()
 
 
 @pytest.fixture(
@@ -33,33 +42,31 @@ from test.utils import flaky
         None,
     ]
 )
-def raw_schema(ctx, request):
-    schema = ctx.openapi.build_schema(
-        {
-            "/data/{path_param}/": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": f"{location}_param",
-                            "in": location,
-                            "required": True,
-                            "schema": {"type": "string"},
-                            **kwargs,
-                        }
-                        for location, kwargs in (
-                            ("path", {}),
-                            ("query", {"style": "simple", "explode": True}),
-                            ("header", {}),
-                            ("cookie", {}),
-                        )
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
+def raw_schema(request, empty_open_api_3_schema):
+    empty_open_api_3_schema["paths"] = {
+        "/data/{path_param}/": {
+            "get": {
+                "parameters": [
+                    {
+                        "name": f"{location}_param",
+                        "in": location,
+                        "required": True,
+                        "schema": {"type": "string"},
+                        **kwargs,
+                    }
+                    for location, kwargs in (
+                        ("path", {}),
+                        ("query", {"style": "simple", "explode": True}),
+                        ("header", {}),
+                        ("cookie", {}),
+                    )
+                ],
+                "responses": {"200": {"description": "OK"}},
             }
         }
-    )
+    }
     if request.param is not None:
-        schema["paths"]["/data/{path_param}/"]["get"].update(
+        empty_open_api_3_schema["paths"]["/data/{path_param}/"]["get"].update(
             {
                 "requestBody": {
                     "content": request.param,
@@ -67,127 +74,118 @@ def raw_schema(ctx, request):
                 }
             }
         )
-    return schema
+    return empty_open_api_3_schema
+
+
+@pytest.mark.hypothesis_nested
+@pytest.mark.xfail(True, reason="The ``--contrib-unique-data`` feature is deprecated and unstable", strict=False)
+def test_python_tests(unique_data, raw_schema, hypothesis_max_examples):
+    schema = schemathesis.from_dict(raw_schema)
+    endpoint = schema["/data/{path_param}/"]["GET"]
+    seen = set()
+
+    @given(
+        case=endpoint.as_strategy(data_generation_method=DataGenerationMethod.positive)
+        | endpoint.as_strategy(data_generation_method=DataGenerationMethod.negative)
+    )
+    @settings(
+        max_examples=hypothesis_max_examples or 30,
+        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+        phases=[Phase.generate],
+        deadline=None,
+    )
+    def test(case):
+        # Check uniqueness by the generated cURL command as a different way to check it
+        command = case.as_curl_command({"X-Schemathesis-TestCaseId": "0"})
+        assert command not in seen, command
+        seen.add(command)
+
+    test()
 
 
 @pytest.fixture
-def unique_hook(ctx):
-    with ctx.check(
+def unique_hook(testdir):
+    return testdir.make_importable_pyfile(
+        hook="""
+        import schemathesis
+
+        @schemathesis.check
+        def unique_test_cases(response, case):
+            if not hasattr(case.operation.schema, "seen"):
+                case.operation.schema.seen = set()
+            command = case.as_curl_command({"X-Schemathesis-TestCaseId": "0"})
+            assert command not in case.operation.schema.seen, f"Test case already seen! {command}"
+            case.operation.schema.seen.add(command)
         """
-@schemathesis.check
-def unique_test_cases(ctx, response, case):
-    if not hasattr(case.operation.schema, "seen"):
-        case.operation.schema.seen = set()
-    command = case.as_curl_command({"X-Schemathesis-TestCaseId": "0"})
-    assert command not in case.operation.schema.seen, f"Test case already seen! {command}"
-    case.operation.schema.seen.add(command)
-"""
-    ) as module:
-        yield module
+    )
 
 
-def run(ctx, cli, unique_hook, schema, base_url, hypothesis_max_examples, *args):
-    schema_file = ctx.makefile(schema)
+def run(testdir, cli, unique_hook, schema, openapi3_base_url, hypothesis_max_examples, *args):
+    schema_file = testdir.make_openapi_schema_file(schema)
     return cli.main(
         "run",
         str(schema_file),
-        f"--url={base_url}",
+        f"--base-url={openapi3_base_url}",
         "-cunique_test_cases",
-        f"--max-examples={hypothesis_max_examples or 30}",
-        "--generation-unique-inputs",
-        "--mode=all",
-        "--suppress-health-check=filter_too_much",
-        "--phases=examples,fuzzing",
+        f"--hypothesis-max-examples={hypothesis_max_examples or 30}",
+        "--contrib-unique-data",
+        "--data-generation-method=all",
+        "--hypothesis-suppress-health-check=filter_too_much",
+        "--hypothesis-phases=generate",
         *args,
-        hooks=unique_hook,
-        config={"warnings": False},
+        hooks=unique_hook.purebasename,
     )
 
 
 @pytest.mark.skipif(platform.system() == "Windows", reason="Fails on Windows")
-@flaky(max_runs=3, min_passes=1)
-def test_cli(ctx, unique_hook, raw_schema, cli, hypothesis_max_examples, snapshot_cli):
-    api = ctx.openapi.apps.success()
-    assert run(ctx, cli, unique_hook, raw_schema, f"{api.base_url}/api", hypothesis_max_examples) == snapshot_cli
+@pytest.mark.xfail(True, reason="The ``--contrib-unique-data`` feature is deprecated and unstable", strict=False)
+@pytest.mark.snapshot(replace_statistic=True)
+def test_cli(testdir, unique_hook, raw_schema, cli, openapi3_base_url, hypothesis_max_examples, snapshot_cli):
+    assert run(testdir, cli, unique_hook, raw_schema, openapi3_base_url, hypothesis_max_examples) == snapshot_cli
 
 
-@pytest.mark.skipif(platform.system() == "Windows", reason="Fails on Windows")
-def test_cli_failure(ctx, unique_hook, cli, hypothesis_max_examples, snapshot_cli):
-    api = ctx.openapi.apps.failure()
-    assert (
-        cli.main(
-            "run",
-            api.schema_url,
-            "-cunique_test_cases",
-            "-cnot_a_server_error",
-            f"--max-examples={hypothesis_max_examples or 30}",
-            "--generation-unique-inputs",
-            "--mode=all",
-            "--suppress-health-check=filter_too_much",
-            "--phases=fuzzing",
-            hooks=unique_hook,
-        )
-        == snapshot_cli
-    )
-
-
-def test_graphql_url(ctx, cli, unique_hook, snapshot_cli):
-    api = ctx.graphql.apps.books()
-    assert (
-        cli.main(
-            "run",
-            api.schema_url,
-            "-cunique_test_cases",
-            "--max-examples=5",
-            "--generation-unique-inputs",
-            hooks=unique_hook,
-        )
-        == snapshot_cli
-    )
-
-
-@pytest.mark.parametrize("workers", [1, 2])
+@pytest.mark.parametrize("workers", (1, 2))
+@pytest.mark.xfail(True, reason="The ``--contrib-unique-data`` feature is deprecated and unstable", strict=False)
 def test_explicit_headers(
-    ctx,
+    testdir,
     unique_hook,
+    empty_open_api_3_schema,
     cli,
+    openapi3_base_url,
     hypothesis_max_examples,
     workers,
     snapshot_cli,
 ):
-    api = ctx.openapi.apps.success()
     header_name = "X-Session-ID"
-    schema = ctx.openapi.build_schema(
-        {
-            "/success": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": name,
-                            "in": location,
-                            "required": True,
-                            "schema": {"type": "string"},
-                        }
-                        for name, location in (
-                            (header_name, "header"),
-                            ("key", "query"),
-                        )
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
+    empty_open_api_3_schema["paths"] = {
+        "/success": {
+            "get": {
+                "parameters": [
+                    {
+                        "name": name,
+                        "in": location,
+                        "required": True,
+                        "schema": {"type": "string"},
+                    }
+                    for name, location in (
+                        (header_name, "header"),
+                        ("key", "query"),
+                    )
+                ],
+                "responses": {"200": {"description": "OK"}},
             }
         }
-    )
+    }
     # When explicit headers are passed to CLI
     # And they match one of the parameters
     # Then they should be included in the uniqueness check
     assert (
         run(
-            ctx,
+            testdir,
             cli,
             unique_hook,
-            schema,
-            f"{api.base_url}/api",
+            empty_open_api_3_schema,
+            openapi3_base_url,
             hypothesis_max_examples,
             f"-H {header_name}: fixed",
             f"--workers={workers}",

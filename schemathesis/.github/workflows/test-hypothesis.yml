@@ -11,14 +11,13 @@ jobs:
     name: Hypothesis tests with CI profile
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4.1.6
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: "3.11"
 
-      - uses: astral-sh/setup-uv@v7
-
-      - run: uvx --from=".[tests]" pytest -m hypothesis -m hypothesis_nested --hypothesis-profile CI --ignore=test/tooling test
+      - run: pip install ".[tests]"
+      - run: pytest -m hypothesis -m hypothesis_nested --hypothesis-profile CI test

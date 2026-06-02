@@ -1,17 +1,13 @@
-def test_basic_pytest_graphql(ctx, testdir):
-    api = ctx.graphql.apps.books()
+def test_basic_pytest_graphql(testdir, graphql_path, graphql_url):
     testdir.make_test(
         f"""
-from schemathesis.generation import GenerationMode
-
-schema = schemathesis.graphql.from_url('{api.schema_url}')
-schema.config.generation.update(modes=[GenerationMode.POSITIVE])
+schema = schemathesis.graphql.from_url('{graphql_url}')
 
 @schema.parametrize()
 @settings(max_examples=10, deadline=None, suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
 def test_(request, case):
     request.config.HYPOTHESIS_CASES += 1
-    assert case.path == "/graphql"
+    assert case.path == "{graphql_path}"
     assert case.operation.definition.field_name in case.body
     response = case.call()
     assert response.status_code == 200
@@ -32,20 +28,18 @@ def test_(request, case):
     )
 
 
-def test_from_wsgi(testdir):
+def test_from_wsgi(testdir, graphql_path):
     testdir.make_test(
-        """
-from test.apps.catalog.graphql.bookstore import books
-from schemathesis.generation import GenerationMode
+        f"""
+from test.apps._graphql._flask.app import app
 
-schema = schemathesis.graphql.from_wsgi("/graphql", app=books().server)
-schema.config.generation.update(modes=[GenerationMode.POSITIVE])
+schema = schemathesis.graphql.from_wsgi("{graphql_path}", app=app)
 
 @schema.parametrize()
 @settings(max_examples=10, deadline=None, suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
 def test_(request, case):
     request.config.HYPOTHESIS_CASES += 1
-    assert case.path == "/graphql"
+    assert case.path == "{graphql_path}"
     assert case.operation.definition.field_name in case.body
     response = case.call_and_validate()
     assert response.status_code == 200

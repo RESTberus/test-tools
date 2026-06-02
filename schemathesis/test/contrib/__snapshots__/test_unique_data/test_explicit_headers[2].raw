@@ -1,46 +1,26 @@
 Exit code: 0
 ---
 Stdout:
-Schemathesis dev
-━━━━━━━━━━━━━━━━
+The `--contrib-unique-data` CLI option and the corresponding `schemathesis.contrib.unique_data` hook are **DEPRECATED**. The concept of this feature does not fit the core principles of Hypothesis where strategies are configurable on a per-example basis but this feature implies uniqueness across examples. This leads to cryptic error messages about external state and flaky test runs, therefore it will be removed in Schemathesis 4.0
+======================= Schemathesis test session starts =======================
+Schema location: file:///tmp/schema.json
+Base URL: http://127.0.0.1/api
+Specification version: Open API 3.0.2
+Random seed: 42
+Workers: 2
+Collected API operations: 1
+Collected API links: 0
+API probing: SUCCESS
+Schema analysis: SKIP
 
-
- ✅  Loaded specification from /tmp/schema.json (in 0.00s)
-
-     Base URL:         http://127.0.0.1/api
-     Specification:    Open API 3.0.2
-     Operations:       1 selected / 1 total
-     Configuration:    /tmp/config.toml
-
-
- ✅  API capabilities:
-
-     Supports NULL byte in headers:                            ✓
-     Accepts backslash and control characters in URL paths:    ✓
-
- ⏭   Examples (in 0.00s)
-
-     ⏭  1 skipped
-
- ✅  Fuzzing (in 0.00s)
-
-     ✅ 1 passed
+.
 
 =================================== SUMMARY ====================================
 
-API Operations:
-  Selected: 1/1
-  Tested: 1
+Performed checks:
+    unique_test_cases                    30 / 30 passed          PASSED 
 
-Test Phases:
-  ⏭  Examples
-  ⏭  Coverage (disabled)
-  ✅ Fuzzing
-  ⏭  Stateful (disabled)
+Tip: Use the `--report` CLI option to visualize test results via Schemathesis.io.
+We run additional conformance checks on reports from public repos.
 
-Test cases:
-  N generated, N passed
-
-Seed: 42
-
-=========================== No issues found in 1.00s ===========================
+============================== 1 passed in 1.00s ===============================

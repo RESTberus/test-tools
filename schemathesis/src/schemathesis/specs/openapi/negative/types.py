@@ -1,8 +1,7 @@
-from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, Callable, Dict, TypeVar
 
 from hypothesis import strategies as st
 
 T = TypeVar("T")
 Draw = Callable[[st.SearchStrategy[T]], T]
-Schema = dict[str, Any]
+Schema = Dict[str, Any]

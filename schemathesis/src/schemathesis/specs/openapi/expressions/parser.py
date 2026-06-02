@@ -1,11 +1,9 @@
 from __future__ import annotations
-
-import re
-from collections.abc import Generator
 from functools import lru_cache
+from typing import Generator
 
-from schemathesis.specs.openapi.expressions import extractors, lexer, nodes
-from schemathesis.specs.openapi.expressions.errors import RuntimeExpressionError, UnknownToken
+from . import lexer, nodes
+from .errors import RuntimeExpressionError, UnknownToken
 
 
 @lru_cache
@@ -46,7 +44,7 @@ def _parse_variable(tokens: lexer.TokenGenerator, token: lexer.Token, expr: str)
     elif token.value == nodes.NodeType.RESPONSE.value:
         yield _parse_response(tokens, expr)
     else:
-        raise UnknownToken(f"Invalid expression `{expr}`. Unknown token: `{token.value}`")
+        raise UnknownToken(token.value)
 
 
 def _parse_request(tokens: lexer.TokenGenerator, expr: str) -> nodes.BodyRequest | nodes.NonBodyRequest:
@@ -55,8 +53,7 @@ def _parse_request(tokens: lexer.TokenGenerator, expr: str) -> nodes.BodyRequest
     if location.value in ("query", "path", "header"):
         skip_dot(tokens, f"$request.{location.value}")
         parameter = take_string(tokens, expr)
-        extractor = take_extractor(tokens, expr, parameter.end)
-        return nodes.NonBodyRequest(location.value, parameter.value, extractor)
+        return nodes.NonBodyRequest(location.value, parameter)
     if location.value == "body":
         try:
             token = next(tokens)
@@ -73,8 +70,7 @@ def _parse_response(tokens: lexer.TokenGenerator, expr: str) -> nodes.HeaderResp
     if location.value == "header":
         skip_dot(tokens, f"$response.{location.value}")
         parameter = take_string(tokens, expr)
-        extractor = take_extractor(tokens, expr, parameter.end)
-        return nodes.HeaderResponse(parameter.value, extractor=extractor)
+        return nodes.HeaderResponse(parameter)
     if location.value == "body":
         try:
             token = next(tokens)
@@ -91,25 +87,8 @@ def skip_dot(tokens: lexer.TokenGenerator, name: str) -> None:
         raise RuntimeExpressionError(f"`{name}` expression should be followed by a dot (`.`). Got: {token.value}")
 
 
-def take_string(tokens: lexer.TokenGenerator, expr: str) -> lexer.Token:
+def take_string(tokens: lexer.TokenGenerator, expr: str) -> str:
     parameter = next(tokens)
     if not parameter.is_string:
         raise RuntimeExpressionError(f"Invalid expression: {expr}")
-    return parameter
-
-
-def take_extractor(tokens: lexer.TokenGenerator, expr: str, current_end: int) -> extractors.Extractor | None:
-    rest = expr[current_end + 1 :]
-    if not rest or rest.startswith("}"):
-        return None
-    extractor = next(tokens)
-    if not extractor.value.startswith("#regex:"):
-        raise RuntimeExpressionError(f"Invalid extractor: {expr}")
-    pattern = extractor.value[len("#regex:") :]
-    try:
-        compiled = re.compile(pattern)
-    except re.error as exc:
-        raise RuntimeExpressionError(f"Invalid regex extractor: {exc}") from None
-    if compiled.groups != 1:
-        raise RuntimeExpressionError("Regex extractor should have exactly one capturing group")
-    return extractors.RegexExtractor(compiled)
+    return parameter.value

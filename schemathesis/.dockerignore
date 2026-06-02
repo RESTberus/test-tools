@@ -1,5 +1,4 @@
 *
 !pyproject.toml
-!.python-version
 !src/schemathesis
 !README.md

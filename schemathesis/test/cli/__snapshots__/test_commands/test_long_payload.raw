@@ -1,36 +1,21 @@
 Exit code: 1
 ---
 Stdout:
-Schemathesis dev
-━━━━━━━━━━━━━━━━
+======================= Schemathesis test session starts =======================
+Schema location: file:///tmp/schema.json
+Base URL: http://127.0.0.1/api
+Specification version: Open API 3.0.2
+Random seed: 42
+Workers: 1
+Collected API operations: 1
+Collected API links: 0
+API probing: SUCCESS
+Schema analysis: SKIP
 
-
- ✅  Loaded specification from http://127.0.0.1/openapi.json (in 0.00s)
-
-     Base URL:         http://127.0.0.1/
-     Specification:    Open API 3.0.2
-     Operations:       1 selected / 1 total
-
-
- ✅  API capabilities:
-
-     Supports NULL byte in headers:                            ✓
-     Accepts backslash and control characters in URL paths:    ✓
-
- ⏭   Examples (in 0.00s)
-
-     ⏭  1 skipped
-
- ❌  Coverage (in 0.00s)
-
-     ❌ 1 failed
-
- ❌  Fuzzing (in 0.00s)
-
-     ❌ 1 failed
+GET /api/long F                                                           [100%]
 
 =================================== FAILURES ===================================
-__________________________________ GET /long ___________________________________
+________________________________ GET /api/long _________________________________
 1. Test Case ID: <PLACEHOLDER>
 
 - Server error
@@ -39,28 +24,24 @@ __________________________________ GET /long ___________________________________
 
     `["A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", " // Output truncated...`
 
-Reproduce with:
+Reproduce with: 
 
-    curl -X GET http://127.0.0.1/long
+    curl -X GET http://127.0.0.1/api/long
 
 =================================== SUMMARY ====================================
 
-API Operations:
-  Selected: 1/1
-  Tested: 1
+Performed checks:
+    not_a_server_error                              0 / 2 passed          FAILED 
+    status_code_conformance                         2 / 2 passed          PASSED 
+    content_type_conformance                        2 / 2 passed          PASSED 
+    response_headers_conformance                    2 / 2 passed          PASSED 
+    response_schema_conformance                     2 / 2 passed          PASSED 
 
-Test Phases:
-  ⏭  Examples
-  ❌ Coverage
-  ❌ Fuzzing
-  ⏭  Stateful (not applicable)
+Note: Use the 'X-Schemathesis-TestCaseId' header to correlate test case ids from failure messages with server logs for debugging.
 
-Failures:
-  ❌ Server error: 1
+Note: To replicate these test failures, rerun with `--hypothesis-seed=42`
 
-Test cases:
-  N generated, N found N unique failures
+Tip: Use the `--report` CLI option to visualize test results via Schemathesis.io.
+We run additional conformance checks on reports from public repos.
 
-Seed: 42
-
-============================== 1 failure in 1.00s ==============================
+============================== 1 failed in 1.00s ===============================

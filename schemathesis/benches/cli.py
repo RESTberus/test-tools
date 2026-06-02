@@ -1,12 +1,11 @@
 import sys
-
 import pytest
 
 pytest_plugins = ["pytester"]
 original = list(sys.modules)
 
 
-@pytest.mark.benchmark(group="cli-startup")
+@pytest.mark.benchmark
 def test_cli_startup(testdir):
     # Measure the import time because running via subprocess does not give proper benchmark results under codspeed
 

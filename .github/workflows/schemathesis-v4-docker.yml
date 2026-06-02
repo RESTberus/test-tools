@@ -1,0 +1,69 @@
+name: Build Schemathesis docker image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "schemathesis-v4/**"
+      - ".github/workflows/schemathesis-v4-docker.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  PLATFORMS: linux/amd64,linux/arm64
+  IMAGE_NAME: schemathesis-v4
+  IMAGE_TAG: latest
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set lower-case image namespace
+        id: vars
+        shell: bash
+        run: |
+          echo "owner_lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          repo_lc="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
+          echo "repo_lc=${repo_lc}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ env.PLATFORMS }}
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          platforms: ${{ env.PLATFORMS }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        id: build_loader
+        uses: docker/build-push-action@v7
+        env:
+          SOURCE_DATE_EPOCH: 0
+        with:
+          context: ./schemathesis
+          file: ./schemathesis/Dockerfile
+          push: true
+          cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
+          cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}
+          platforms: ${{ env.PLATFORMS }}
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}

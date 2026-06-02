@@ -1,10 +1,9 @@
 import pytest
-from _pytest.main import ExitCode
 from hypothesis import given
 from hypothesis import strategies as st
 
 import schemathesis
-from schemathesis.core.errors import IncorrectUsage
+from schemathesis.exceptions import UsageError
 from schemathesis.graphql import nodes
 from schemathesis.specs.graphql.scalars import CUSTOM_SCALARS
 
@@ -15,7 +14,7 @@ def clear_custom_scalars():
     CUSTOM_SCALARS.clear()
 
 
-def test_custom_scalar_graphql(ctx):
+def test_custom_scalar_graphql():
     # When a custom scalar strategy is registered
     expected = "2022-04-27"
     schemathesis.graphql.scalar("Date", st.just(expected).map(nodes.String))
@@ -26,7 +25,7 @@ type Query {
   getByDate(value: Date!): Int!
 }
 """
-    schema = ctx.graphql.load_sdl(raw_schema)
+    schema = schemathesis.graphql.from_file(raw_schema)
 
     @given(schema["Query"]["getByDate"].as_strategy())
     def test(case):
@@ -36,7 +35,7 @@ type Query {
     test()
 
 
-def test_custom_scalar_in_cli(ctx, testdir, cli, snapshot_cli):
+def test_custom_scalar_in_cli(testdir, cli, snapshot_cli):
     schema_file = testdir.make_graphql_schema_file(
         """
 scalar FooBar
@@ -46,11 +45,10 @@ type Query {
 }
     """,
     )
-    api = ctx.graphql.apps.books()
-    assert cli.run(str(schema_file), f"--url={api.schema_url}") == snapshot_cli
+    assert cli.run(str(schema_file), "--dry-run") == snapshot_cli
 
 
-def test_built_in_scalars_in_cli(ctx, testdir, cli):
+def test_built_in_scalars_in_cli(testdir, cli, snapshot_cli):
     schema_file = testdir.make_graphql_schema_file(
         """
 scalar Date
@@ -75,24 +73,16 @@ type Query {
   getByUUID(value: UUID!): Int!
 }""",
     )
-    api = ctx.graphql.apps.books()
-    result = cli.run_and_assert(
-        str(schema_file),
-        "--max-examples=5",
-        f"--url={api.schema_url}",
-        exit_code=ExitCode.TESTS_FAILED,
-    )
-    # Queries can be constructed, but the backend does not implement the fields
-    assert result.stdout.count("Cannot query field") == 18
+    assert cli.run(str(schema_file), "--dry-run", "--hypothesis-max-examples=5") == snapshot_cli
 
 
 @pytest.mark.parametrize(
-    ("name", "value", "expected"),
-    [
+    "name, value, expected",
+    (
         (42, st.just("foo").map(nodes.String), "Scalar name 42 must be a string"),
         ("Date", 42, "42 must be a Hypothesis strategy which generates AST nodes matching this scalar"),
-    ],
+    ),
 )
 def test_invalid_strategy(name, value, expected):
-    with pytest.raises(IncorrectUsage, match=expected):
+    with pytest.raises(UsageError, match=expected):
         schemathesis.graphql.scalar(name, value)

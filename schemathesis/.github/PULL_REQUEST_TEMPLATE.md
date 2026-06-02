@@ -1,4 +1,4 @@
-🚨Please review the [Contributing Guidelines](https://github.com/schemathesis/schemathesis/blob/master/CONTRIBUTING.md).
+🚨Please review the [Contributing Guidelines](https://github.com/schemathesis/schemathesis/blob/master/CONTRIBUTING.rst).
 
 ### Description
 
@@ -8,5 +8,5 @@ Briefly describe your changes.
 
 - [ ] Added failing tests for the change
 - [ ] All new and existing tests pass
-- [ ] Added changelog entry
+- [ ] Added changelog entry (follow guidelines in CONTRIBUTING.rst)
 - [ ] Updated README/documentation, if necessary

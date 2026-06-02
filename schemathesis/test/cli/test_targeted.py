@@ -2,74 +2,76 @@ import pytest
 from _pytest.main import ExitCode
 
 import schemathesis
-from schemathesis.generation.metrics import METRICS
+from schemathesis.cli import reset_targets
 
 
-@pytest.fixture
-def new_metric(ctx, cli):
-    module = ctx.write_pymodule(
-        """
-import click
+@pytest.fixture()
+def new_target(testdir, cli):
+    module = testdir.make_importable_pyfile(
+        hook="""
+            import schemathesis
+            import click
 
-@schemathesis.metric
-def new_metric(ctx) -> float:
-    click.echo("NEW METRIC IS CALLED")
-    assert ctx.case.meta.generation.mode is not None, "Empty generation mode"
-    return float(len(ctx.response.content))
-"""
+            @schemathesis.target
+            def new_target(context) -> float:
+                click.echo("NEW TARGET IS CALLED")
+                assert context.case.data_generation_method is not None, "Empty data_generation_method"
+                return float(len(context.response.content))
+            """
     )
     yield module
-    METRICS.unregister("new_metric")
-    # To verify that "new_metric" is unregistered
-    assert "new_metric" not in cli.run("--help").stdout
+    reset_targets()
+    # To verify that "new_target" is unregistered
+    result = cli.run("--help")
+    lines = result.stdout.splitlines()
+    assert "  -t, --target [response_time|all]" in lines
 
 
-@pytest.mark.usefixtures("new_metric")
-def test_custom_metric(ctx, cli, new_metric):
-    api = ctx.openapi.apps.success()
+@pytest.mark.usefixtures("new_target")
+@pytest.mark.operations("success")
+def test_custom_target(cli, new_target, openapi3_schema_url):
     # When hooks are passed to the CLI call
-    # And it contains registering a new metric
-    result = cli.main("run", "--generation-maximize", "new_metric", api.schema_url, hooks=new_metric)
+    # And it contains registering a new target
+    result = cli.main("run", "-t", "new_target", openapi3_schema_url, hooks=new_target.purebasename)
     # Then the test run should be successful
     assert result.exit_code == ExitCode.OK, result.stdout
-    # And the specified metric is called
-    assert "NEW METRIC IS CALLED" in result.stdout
+    # And the specified target is called
+    assert "NEW TARGET IS CALLED" in result.stdout
 
 
-@pytest.mark.usefixtures("new_metric")
-def test_custom_metric_graphql(ctx, cli, new_metric):
+@pytest.mark.usefixtures("new_target")
+@pytest.mark.operations("success")
+def test_custom_target_graphql(cli, new_target, graphql_url):
     # When hooks are passed to the CLI call
-    # And it contains registering a new metric
-    api = ctx.graphql.apps.books()
+    # And it contains registering a new target
     result = cli.main(
         "run",
-        "--generation-maximize",
-        "new_metric",
-        api.schema_url,
-        "--suppress-health-check=too_slow,filter_too_much",
-        "--max-examples=1",
-        "--mode=positive",
-        hooks=new_metric,
+        "-t",
+        "new_target",
+        graphql_url,
+        "--hypothesis-suppress-health-check=too_slow,filter_too_much",
+        "--hypothesis-max-examples=1",
+        hooks=new_target.purebasename,
     )
     # Then the test run should be successful
     assert result.exit_code == ExitCode.OK, result.stdout
-    # And the specified metric is called
-    assert "NEW METRIC IS CALLED" in result.stdout
+    # And the specified target is called
+    assert "NEW TARGET IS CALLED" in result.stdout
 
 
 @pytest.fixture
-def metric_function():
-    @schemathesis.metric
-    def new_metric(context):
+def target_function():
+    @schemathesis.target
+    def new_target(context):
         return 0.5
 
-    yield metric_function
+    yield target_function
 
-    METRICS.unregister("new_metric")
+    reset_targets()
 
 
-def test_register_returns_a_value(metric_function):
-    # When a function is registered via the `schemathesis.metric` decorator
+def test_register_returns_a_value(target_function):
+    # When a function is registered via the `schemathesis.target` decorator
     # Then this function should be available for further usage
     # See #721
-    assert metric_function is not None
+    assert target_function is not None

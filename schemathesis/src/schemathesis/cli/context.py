@@ -1,35 +1,63 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Generator
+import os
+import shutil
 from dataclasses import dataclass, field
+from queue import Queue
 from typing import TYPE_CHECKING
 
-from schemathesis.cli.events import LoadingFinished
-from schemathesis.engine.statistic import Statistic
+from ..code_samples import CodeSampleStyle
+from ..internal.deprecation import deprecated_property
+from ..internal.result import Result
+from ..runner.probes import ProbeRun
+from ..runner.serialization import SerializedTestResult
+from ..service.models import AnalysisResult
 
 if TYPE_CHECKING:
-    from schemathesis.config import ProjectConfig
-    from schemathesis.engine import events
-    from schemathesis.schemas import APIOperation
+    import hypothesis
 
 
 @dataclass
-class BaseExecutionContext:
-    """Shared execution state for CLI commands (run, fuzz)."""
+class ServiceReportContext:
+    queue: Queue
+    service_base_url: str
 
-    config: ProjectConfig
-    find_operation_by_label: Callable[[str], APIOperation | None] | None = None
-    statistic: Statistic = field(default_factory=Statistic)
-    exit_code: int = 0
-    initialization_lines: list[str | Generator[str, None, None]] = field(default_factory=list)
-    summary_lines: list[str | Generator[str, None, None]] = field(default_factory=list)
 
-    def add_initialization_line(self, line: str | Generator[str, None, None]) -> None:
-        self.initialization_lines.append(line)
+@dataclass
+class FileReportContext:
+    queue: Queue
+    filename: str | None = None
 
-    def add_summary_line(self, line: str | Generator[str, None, None]) -> None:
-        self.summary_lines.append(line)
 
-    def on_event(self, event: events.EngineEvent) -> None:
-        if isinstance(event, LoadingFinished):
-            self.find_operation_by_label = event.find_operation_by_label
+@dataclass
+class ExecutionContext:
+    """Storage for the current context of the execution."""
+
+    hypothesis_settings: hypothesis.settings
+    hypothesis_output: list[str] = field(default_factory=list)
+    workers_num: int = 1
+    rate_limit: str | None = None
+    show_trace: bool = False
+    wait_for_schema: float | None = None
+    validate_schema: bool = True
+    operations_processed: int = 0
+    # It is set in runtime, from the `Initialized` event
+    operations_count: int | None = None
+    seed: int | None = None
+    current_line_length: int = 0
+    terminal_size: os.terminal_size = field(default_factory=shutil.get_terminal_size)
+    results: list[SerializedTestResult] = field(default_factory=list)
+    cassette_path: str | None = None
+    junit_xml_file: str | None = None
+    is_interrupted: bool = False
+    verbosity: int = 0
+    code_sample_style: CodeSampleStyle = CodeSampleStyle.default()
+    report: ServiceReportContext | FileReportContext | None = None
+    probes: list[ProbeRun] | None = None
+    analysis: Result[AnalysisResult, Exception] | None = None
+    # Special flag to display a warning about Windows-specific encoding issue
+    encountered_windows_encoding_issue: bool = False
+
+    @deprecated_property(removed_in="4.0", replacement="show_trace")
+    def show_errors_tracebacks(self) -> bool:
+        return self.show_trace

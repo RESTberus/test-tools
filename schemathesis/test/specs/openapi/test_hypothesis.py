@@ -1,30 +1,20 @@
-import uuid
-import warnings
-from datetime import date
-from pathlib import Path
+import json
 
-import jsonschema_rs
 import pytest
-from hypothesis import HealthCheck, Phase, assume, given, settings
+from hypothesis import assume, given, settings, Phase
 from hypothesis import strategies as st
-from hypothesis.errors import FailedHealthCheck, Unsatisfiable
-from jsonschema_rs import Draft4Validator
 
 import schemathesis
-from schemathesis.config import GenerationConfig
-from schemathesis.core.jsonschema.resolver import load_file
-from schemathesis.core.parameters import ParameterLocation
-from schemathesis.generation import GenerationMode
-from schemathesis.openapi.generation import filters
-from schemathesis.openapi.generation.filters import is_valid_header
+from schemathesis.generation import GenerationConfig, HeaderConfig
 from schemathesis.specs.openapi import _hypothesis, formats
-from schemathesis.specs.openapi._hypothesis import make_positive_strategy
+from schemathesis.specs.openapi._hypothesis import get_case_strategy, is_valid_header, make_positive_strategy
+from schemathesis.specs.openapi.references import load_file
 from test.utils import assert_requests_call
 
 
 @pytest.fixture
-def operation(ctx, make_openapi_3_schema):
-    raw_schema = make_openapi_3_schema(
+def operation(make_openapi_3_schema):
+    schema = make_openapi_3_schema(
         body={
             "required": True,
             "content": {"application/json": {"schema": {"type": "string"}}},
@@ -36,13 +26,12 @@ def operation(ctx, make_openapi_3_schema):
             {"in": "query", "name": "q1", "required": True, "schema": {"type": "string", "enum": ["FOO"]}},
         ],
     )
-    schema = ctx.openapi.load_schema(raw_schema["paths"])
-    return schema["/users"]["POST"]
+    return schemathesis.from_dict(schema)["/users"]["POST"]
 
 
 @pytest.mark.parametrize(
-    ("values", "expected"),
-    [
+    "values, expected",
+    (
         ({"body": "TEST"}, {"body": "TEST"}),
         ({"path_parameters": {"p1": "TEST"}}, {"path_parameters": {"p1": "TEST"}}),
         ({"path_parameters": {}}, {"path_parameters": {"p1": "FOO"}}),
@@ -54,11 +43,11 @@ def operation(ctx, make_openapi_3_schema):
         ({"cookies": {}}, {"cookies": {"c1": "FOO"}}),
         ({"query": {"q1": "TEST"}}, {"query": {"q1": "TEST"}}),
         ({"query": {}}, {"query": {"q1": "FOO"}}),
-    ],
+    ),
 )
 def test_explicit_attributes(operation, values, expected):
     # When some Case's attribute is passed explicitly to the case strategy
-    strategy = operation.as_strategy(**values)
+    strategy = get_case_strategy(operation=operation, **values)
 
     @given(strategy)
     @settings(max_examples=1)
@@ -72,49 +61,48 @@ def test_explicit_attributes(operation, values, expected):
 
 
 @pytest.fixture
-def deeply_nested_schema(ctx):
-    return ctx.openapi.build_schema(
-        {
-            "/data": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": "key",
-                            "in": "query",
-                            "required": True,
-                            "schema": {
-                                # In the end it will be replaced with "#/components/schemas/bar"
-                                "$ref": "#/components/schemas/foo1"
-                            },
-                        }
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
+def deeply_nested_schema(empty_open_api_3_schema):
+    empty_open_api_3_schema["paths"] = {
+        "/data": {
+            "get": {
+                "parameters": [
+                    {
+                        "name": "key",
+                        "in": "query",
+                        "required": True,
+                        "schema": {
+                            # In the end it will be replaced with "#/components/schemas/bar"
+                            "$ref": "#/components/schemas/foo1"
+                        },
+                    }
+                ],
+                "responses": {"200": {"description": "OK"}},
             }
-        },
-        components={
-            "schemas": {
-                "foo1": {"$ref": "#/components/schemas/foo2"},
-                "foo2": {"$ref": "#/components/schemas/foo3"},
-                "foo3": {"$ref": "#/components/schemas/foo4"},
-                "foo4": {"$ref": "#/components/schemas/foo5"},
-                "foo5": {"$ref": "#/components/schemas/foo6"},
-                "foo6": {"$ref": "#/components/schemas/foo7"},
-                "foo7": {"$ref": "#/components/schemas/foo8"},
-                "foo8": {"$ref": "#/components/schemas/foo9"},
-                "foo9": {"$ref": "#/components/schemas/bar"},
-                "bar": {
-                    "type": "string",
-                },
-            }
-        },
-    )
+        }
+    }
+    empty_open_api_3_schema["components"] = {
+        "schemas": {
+            "foo1": {"$ref": "#/components/schemas/foo2"},
+            "foo2": {"$ref": "#/components/schemas/foo3"},
+            "foo3": {"$ref": "#/components/schemas/foo4"},
+            "foo4": {"$ref": "#/components/schemas/foo5"},
+            "foo5": {"$ref": "#/components/schemas/foo6"},
+            "foo6": {"$ref": "#/components/schemas/foo7"},
+            "foo7": {"$ref": "#/components/schemas/foo8"},
+            "foo8": {"$ref": "#/components/schemas/foo9"},
+            "foo9": {"$ref": "#/components/schemas/bar"},
+            "bar": {
+                "type": "string",
+            },
+        }
+    }
+    return empty_open_api_3_schema
 
 
-def test_missed_ref(ctx, deeply_nested_schema):
+def test_missed_ref(deeply_nested_schema):
     # See GH-1167
     # When not resolved references are present in the schema during constructing a strategy
-    schema = ctx.openapi.load_schema(deeply_nested_schema["paths"], components=deeply_nested_schema["components"])
+    schema = schemathesis.from_dict(deeply_nested_schema)
 
     @given(schema["/data"]["GET"].as_strategy())
     @settings(max_examples=10)
@@ -131,7 +119,7 @@ def test_inlined_definitions(deeply_nested_schema):
     # And the referenced schema contains Open API specific keywords
     deeply_nested_schema["components"]["schemas"]["bar"]["nullable"] = True
 
-    schema = schemathesis.openapi.from_dict(deeply_nested_schema)
+    schema = schemathesis.from_dict(deeply_nested_schema)
 
     @given(schema["/data"]["GET"].as_strategy())
     @settings(max_examples=1)
@@ -142,22 +130,22 @@ def test_inlined_definitions(deeply_nested_schema):
     test()
 
 
+@pytest.mark.parametrize("keywords", ({}, {"pattern": r"\A[A-F0-9]{12}\Z"}))
 @pytest.mark.hypothesis_nested
-def test_valid_headers():
+def test_valid_headers(keywords):
     # When headers are generated
     # And there is no other keywords than "type"
     strategy = make_positive_strategy(
         {
             "type": "object",
-            "properties": {"X-Foo": {"type": "string", "pattern": r"\A[A-F0-9]{12}\Z"}},
+            "properties": {"X-Foo": {"type": "string", **keywords}},
             "required": ["X-Foo"],
             "additionalProperties": False,
         },
         "GET /users/",
-        ParameterLocation.HEADER,
+        "header",
         None,
         GenerationConfig(),
-        Draft4Validator,
     )
 
     @given(strategy)
@@ -168,62 +156,20 @@ def test_valid_headers():
     test()
 
 
-@pytest.mark.parametrize("spec_required", [True, False], ids=["spec-required", "spec-optional"])
-def test_header_schema_dedupes_case_insensitive_duplicates(ctx, spec_required):
-    # HTTP header names are case-insensitive; the merged headers schema must collapse
-    # spec parameter and security-scheme entries that differ only by case, and the
-    # canonical first-seen casing must end up `required` whenever any duplicate is required.
-    schema = ctx.openapi.load_schema(
-        {
-            "/v2/": {
-                "post": {
-                    "parameters": [
-                        {
-                            "name": "authorization",
-                            "in": "header",
-                            "required": spec_required,
-                            "schema": {"type": "string"},
-                        }
-                    ],
-                    "security": [{"Bearer": []}],
-                    "responses": {"200": {"description": "OK"}},
-                }
-            }
-        },
-        components={
-            "securitySchemes": {"Bearer": {"type": "http", "scheme": "bearer"}},
-        },
-    )
-    operation = schema["/v2/"]["POST"]
-    properties = operation.headers.schema["properties"]
-    required = operation.headers.schema.get("required", [])
-    seen = {name.lower() for name in properties}
-    assert len(seen) == len(properties), f"case-insensitive duplicates in headers schema: {sorted(properties)}"
-    seen_required = {name.lower() for name in required}
-    assert len(seen_required) == len(required), f"case-insensitive duplicates in required: {sorted(required)}"
-    # Security scheme always demands the header — the canonical casing must be required either way.
-    assert "authorization" in seen_required
-
-
 def test_configure_headers():
     strategy = make_positive_strategy(
         {
             "type": "object",
-            "properties": {
-                "X-Foo": {
-                    "type": "string",
-                    # This is added a few layers above
-                    "format": formats.HEADER_FORMAT,
-                }
-            },
+            "properties": {"X-Foo": {"type": "string"}},
             "required": ["X-Foo"],
             "additionalProperties": False,
         },
         "GET /users/",
-        ParameterLocation.HEADER,
+        "header",
         None,
-        GenerationConfig(exclude_header_characters="".join({chr(i) for i in range(256)} - {"A", "B", "C"})),
-        Draft4Validator,
+        GenerationConfig(
+            headers=HeaderConfig(strategy=st.text(alphabet=st.characters(min_codepoint=65, max_codepoint=67)))
+        ),
     )
 
     @given(strategy)
@@ -247,10 +193,9 @@ def test_no_much_filtering_in_headers():
             "additionalProperties": False,
         },
         "GET /users/",
-        ParameterLocation.HEADER,
+        "header",
         None,
         GenerationConfig(),
-        Draft4Validator,
     )
 
     @given(strategy)
@@ -315,26 +260,23 @@ def _scoped_remote_schema(testdir):
 
 @pytest.mark.usefixtures("clear_caches")
 @pytest.mark.parametrize(
-    ("setup", "check"),
-    [
+    "setup, check",
+    (
         (_remote_schema, lambda v: isinstance(v, int)),
         (_nested_remote_schema, lambda v: isinstance(v, int)),
         (_deep_nested_remote_schema, lambda v: isinstance(v["a"], int)),
         (_colliding_remote_schema, lambda v: isinstance(v["a"], int) and isinstance(v["b"], str)),
         (_back_reference_remote_schema, lambda v: isinstance(v, int)),
         (_scoped_remote_schema, lambda v: isinstance(v, int)),
-    ],
+    ),
 )
 def test_inline_remote_refs(testdir, deeply_nested_schema, setup, check):
     # See GH-986
     setup(testdir)
+    deeply_nested_schema["components"]["schemas"]["foo9"] = {"$ref": "bar.json#/bar"}
 
-    deeply_nested_schema["components"]["schemas"]["foo9"] = {
-        "$ref": Path(str(testdir.tmpdir / "bar.json")).as_uri() + "#/bar"
-    }
-
-    original = jsonschema_rs.canonical.json.to_string(deeply_nested_schema)
-    schema = schemathesis.openapi.from_dict(deeply_nested_schema)
+    original = json.dumps(deeply_nested_schema, sort_keys=True, ensure_ascii=True)
+    schema = schemathesis.from_dict(deeply_nested_schema)
 
     @given(schema["/data"]["GET"].as_strategy())
     @settings(max_examples=1)
@@ -346,11 +288,11 @@ def test_inline_remote_refs(testdir, deeply_nested_schema, setup, check):
     test()
 
     # And the original schema is not mutated
-    assert jsonschema_rs.canonical.json.to_string(deeply_nested_schema) == original
+    assert json.dumps(deeply_nested_schema, sort_keys=True, ensure_ascii=True) == original
 
 
-def make_header_param(**kwargs):
-    return {
+def make_header_param(schema, **kwargs):
+    schema["paths"] = {
         "/data": {
             "get": {
                 "parameters": [
@@ -367,10 +309,12 @@ def make_header_param(**kwargs):
     }
 
 
-def test_header_filtration_not_needed(ctx, mocker):
+def test_header_filtration_not_needed(empty_open_api_3_schema, mocker):
     # When schema contains a simple header
-    mocked = mocker.spy(filters, "is_valid_header")
-    schema = ctx.openapi.load_schema(make_header_param())
+    mocked = mocker.spy(_hypothesis, "is_valid_header")
+    make_header_param(empty_open_api_3_schema)
+
+    schema = schemathesis.from_dict(empty_open_api_3_schema)
 
     @given(schema["/data"]["GET"].as_strategy())
     def test(case):
@@ -382,10 +326,12 @@ def test_header_filtration_not_needed(ctx, mocker):
     mocked.assert_not_called()
 
 
-def test_header_filtration_needed(ctx, mocker):
+def test_header_filtration_needed(empty_open_api_3_schema, mocker):
     # When schema contains a header with a custom format
-    mocked = mocker.spy(filters, "is_valid_header")
-    schema = ctx.openapi.load_schema(make_header_param(format="date"))
+    mocked = mocker.spy(_hypothesis, "is_valid_header")
+    make_header_param(empty_open_api_3_schema, format="date")
+
+    schema = schemathesis.from_dict(empty_open_api_3_schema)
 
     @given(schema["/data"]["GET"].as_strategy())
     @settings(max_examples=1)
@@ -398,34 +344,34 @@ def test_header_filtration_needed(ctx, mocker):
     mocked.assert_called()
 
 
-def test_missing_header_filter(ctx, mocker):
+def test_missing_header_filter(empty_open_api_3_schema, mocker):
     # Regression. See GH-1142
-    mocked = mocker.spy(filters, "is_valid_header")
+    mocked = mocker.spy(_hypothesis, "is_valid_header")
     # When some header parameters have the `format` keyword
     # And some don't
-    schema = ctx.openapi.load_schema(
-        {
-            "/data": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": "key1",
-                            "in": "header",
-                            "required": True,
-                            "schema": {"type": "string", "format": "uuid"},
-                        },
-                        {
-                            "name": "key2",
-                            "in": "header",
-                            "required": True,
-                            "schema": {"type": "string"},
-                        },
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
+    empty_open_api_3_schema["paths"] = {
+        "/data": {
+            "get": {
+                "parameters": [
+                    {
+                        "name": "key1",
+                        "in": "header",
+                        "required": True,
+                        "schema": {"type": "string", "format": "uuid"},
+                    },
+                    {
+                        "name": "key2",
+                        "in": "header",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    },
+                ],
+                "responses": {"200": {"description": "OK"}},
             }
         }
-    )
+    }
+
+    schema = schemathesis.from_dict(empty_open_api_3_schema)
 
     @given(schema["/data"]["GET"].as_strategy())
     def test(case):
@@ -437,9 +383,11 @@ def test_missing_header_filter(ctx, mocker):
     mocked.assert_called()
 
 
-def test_serializing_shared_header_parameters(ctx):
-    schema = ctx.openapi.load_schema(
-        {
+def test_serializing_shared_header_parameters():
+    raw_schema = {
+        "swagger": "2.0",
+        "info": {"version": "1.0.0", "title": "Example API"},
+        "paths": {
             "/data": {
                 "get": {
                     "responses": {"default": {"description": "Ok"}},
@@ -449,8 +397,9 @@ def test_serializing_shared_header_parameters(ctx):
                 ],
             },
         },
-        version="2.0",
-    )
+    }
+
+    schema = schemathesis.from_dict(raw_schema)
 
     @given(schema["/data"]["GET"].as_strategy())
     def test(case):
@@ -459,41 +408,40 @@ def test_serializing_shared_header_parameters(ctx):
     test()
 
 
-def test_filter_urlencoded(ctx):
+def test_filter_urlencoded(empty_open_api_3_schema):
     # When API schema allows for inputs that can't be serialized to `application/x-www-form-urlencoded`
     # Then such examples should be filtered out during generation
-    schema = ctx.openapi.load_schema(
-        {
-            "/test": {
-                "post": {
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/x-www-form-urlencoded": {
-                                "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "properties": {
-                                            "value": {
-                                                "enum": ["A"],
-                                            },
-                                            "key": {
-                                                "enum": ["B"],
-                                            },
+    empty_open_api_3_schema["paths"] = {
+        "/test": {
+            "post": {
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "array",
+                                "items": {
+                                    "properties": {
+                                        "value": {
+                                            "enum": ["A"],
                                         },
-                                        "required": ["key", "value"],
-                                        # Additional properties are allowed
+                                        "key": {
+                                            "enum": ["B"],
+                                        },
                                     },
-                                    "maxItems": 3,
-                                }
+                                    "required": ["key", "value"],
+                                    # Additional properties are allowed
+                                },
+                                "maxItems": 3,
                             }
-                        },
+                        }
                     },
-                    "responses": {"200": {"description": "OK"}},
                 },
-            }
+                "responses": {"200": {"description": "OK"}},
+            },
         }
-    )
+    }
+    schema = schemathesis.from_dict(empty_open_api_3_schema)
 
     @given(schema["/test"]["POST"].as_strategy())
     @settings(phases=[Phase.generate], max_examples=15, deadline=None)
@@ -504,12 +452,12 @@ def test_filter_urlencoded(ctx):
 
 
 @pytest.mark.parametrize(
-    ("value", "expected"),
-    [
+    "value, expected",
+    (
         ("foo", True),
         ("тест", False),
         ("\n", False),
-    ],
+    ),
 )
 def test_is_valid_header(value, expected):
     assert is_valid_header({"foo": value}) is expected
@@ -526,315 +474,3 @@ def test_unregister_string_format_valid():
 def test_unregister_string_format_invalid():
     with pytest.raises(ValueError, match="Unknown Open API format: unknown"):
         formats.unregister_string_format("unknown")
-
-
-@pytest.mark.hypothesis_nested
-def test_email_format_passes_jsonschema_rs_validation(ctx):
-    schema = ctx.openapi.load_schema(
-        {
-            "/users": {
-                "post": {
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {"email": {"type": "string", "format": "email"}},
-                                    "required": ["email"],
-                                }
-                            }
-                        },
-                    },
-                    "responses": {"200": {"description": "OK"}},
-                }
-            }
-        }
-    )
-    operation = schema["/users"]["POST"]
-    validator = Draft4Validator({"type": "string", "format": "email"})
-
-    @given(case=operation.as_strategy())
-    @settings(deadline=None, suppress_health_check=list(HealthCheck))
-    def inner(case):
-        assert validator.is_valid(case.body["email"])
-
-    inner()
-
-
-@pytest.mark.hypothesis_nested
-def test_builtin_format_override(ctx):
-    # See GH-3269
-    # When a built-in format is overridden with a custom strategy
-    today = date.today()
-    schemathesis.openapi.format("date", st.dates(max_value=today).map(str))
-    schema = ctx.openapi.load_schema(
-        {
-            "/events": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": "start_date",
-                            "in": "query",
-                            "required": True,
-                            "schema": {"type": "string", "format": "date"},
-                        }
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
-            }
-        }
-    )
-    operation = schema["/events"]["GET"]
-
-    @given(case=operation.as_strategy())
-    @settings(max_examples=20, deadline=None)
-    def inner(case):
-        # Then all generated values respect the override
-        assert date.fromisoformat(case.query["start_date"]) <= today
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        inner()
-
-
-@pytest.mark.hypothesis_nested
-def test_custom_format_path_value_with_slash_is_accepted_when_explicit(ctx):
-    # See GH-3571
-    format_name = "ip-network-explicit-gh3571"
-    schemathesis.openapi.format(format_name, st.sampled_from(["192.168.1.0/24"]))
-    schema = ctx.openapi.load_schema(
-        {
-            "/blocks/{block}": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": "block",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "format": format_name},
-                        }
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
-            }
-        }
-    )
-    operation = schema["/blocks/{block}"]["GET"]
-
-    @given(case=operation.as_strategy())
-    @settings(max_examples=1, deadline=None)
-    def inner(case):
-        assert case.path_parameters["block"] == "192.168.1.0%2F24"
-
-    inner()
-
-
-@pytest.mark.hypothesis_nested
-def test_path_example_without_slash_does_not_allow_encoded_slash(ctx):
-    schema = ctx.openapi.load_schema(
-        {
-            "/blocks/{block}": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": "block",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "pattern": "^[0-9]+/[0-9]+$"},
-                            "example": "foo",
-                        }
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
-            }
-        }
-    )
-    operation = schema["/blocks/{block}"]["GET"]
-    strategy = _hypothesis.get_parameters_strategy(
-        operation,
-        GenerationMode.POSITIVE,
-        ParameterLocation.PATH,
-        GenerationConfig(),
-        mix_examples=False,
-    )
-
-    @given(value=strategy)
-    @settings(max_examples=1, deadline=None)
-    def inner(value):
-        pass
-
-    with pytest.raises((FailedHealthCheck, Unsatisfiable)):
-        inner()
-
-
-@pytest.mark.hypothesis_nested
-def test_path_example_with_slash_allows_encoded_slash(ctx):
-    schema = ctx.openapi.load_schema(
-        {
-            "/blocks/{block}": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": "block",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "pattern": r"^[0-9.]+/[0-9]+$"},
-                            "example": "192.168.1.0/24",
-                        }
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
-            }
-        }
-    )
-    operation = schema["/blocks/{block}"]["GET"]
-    strategy = _hypothesis.get_parameters_strategy(
-        operation,
-        GenerationMode.POSITIVE,
-        ParameterLocation.PATH,
-        GenerationConfig(),
-        mix_examples=False,
-    )
-
-    @given(value=strategy)
-    @settings(max_examples=10, deadline=None)
-    def inner(value):
-        assert "%2F" in value["block"]
-
-    inner()
-
-
-@pytest.mark.hypothesis_nested
-def test_path_parameters_encoded_braces_are_filtered(ctx):
-    schema = ctx.openapi.load_schema(
-        {
-            "/blocks/{block}": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": "block",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string", "pattern": "^[{}]$"},
-                        }
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
-            }
-        }
-    )
-    operation = schema["/blocks/{block}"]["GET"]
-    strategy = _hypothesis.get_parameters_strategy(
-        operation,
-        GenerationMode.POSITIVE,
-        ParameterLocation.PATH,
-        GenerationConfig(),
-        mix_examples=False,
-    )
-
-    @given(value=strategy)
-    @settings(max_examples=1, deadline=None)
-    def inner(value):
-        pass
-
-    with pytest.raises((FailedHealthCheck, Unsatisfiable)):
-        inner()
-
-
-def test_custom_format_with_bytes(testdir):
-    # See GH-3289: custom formats returning bytes should work
-    testdir.make_test(
-        """
-import schemathesis
-from hypothesis import strategies as st
-
-# Register a custom format that returns bytes
-pdf_strategy = st.sampled_from([
-    b"%PDF-1.4\\n1 0 obj\\n",
-    b"%PDF-1.5\\n%\\xe2\\xe3",
-])
-schemathesis.openapi.format("custom-pdf", pdf_strategy)
-
-schema = schemathesis.openapi.from_dict({
-    "openapi": "3.0.0",
-    "info": {"title": "Test", "version": "1.0.0"},
-    "paths": {
-        "/upload": {
-            "put": {
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/octet-stream": {
-                            "schema": {
-                                "type": "string",
-                                "format": "custom-pdf"
-                            }
-                        }
-                    }
-                },
-                "responses": {"200": {"description": "OK"}}
-            }
-        }
-    }
-})
-
-@schema.parametrize()
-def test_api(case):
-    # Should not crash
-    pass
-        """,
-    )
-    result = testdir.runpytest("-v", "-s")
-    result.assert_outcomes(passed=1)
-
-
-@given(st.data())
-@settings(max_examples=50)
-def test_uuid_format_is_rfc4122(data):
-    value = data.draw(formats.get_default_format_strategies()["uuid"])
-    assert uuid.UUID(value).variant == uuid.RFC_4122
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ({"name": "a%5Cb"}, {"name": "a_b"}),
-        ({"name": "%5C%5c%01%1F%7F%7f"}, {"name": "______"}),
-        ({"name": "ok-value-1"}, {"name": "ok-value-1"}),
-        ({"name": "literal-%25"}, {"name": "literal-%25"}),
-        ({"id": 42}, {"id": 42}),
-    ],
-    ids=["backslash", "control-and-del", "safe-string", "literal-percent", "non-string"],
-)
-def test_strip_path_decoder_unsafe(raw, expected):
-    assert _hypothesis._strip_path_decoder_unsafe(raw) == expected
-
-
-@pytest.mark.hypothesis_nested
-def test_path_string_sanitized_when_decoder_strict(ctx):
-    schema = ctx.openapi.load_schema(
-        {
-            "/products/{productName}": {
-                "get": {
-                    "parameters": [
-                        {"name": "productName", "in": "path", "required": True, "schema": {"type": "string"}}
-                    ],
-                    "responses": {"200": {"description": "OK"}},
-                }
-            }
-        }
-    )
-    schema.adapt_to_path_decoder_rejection()
-    operation = schema["/products/{productName}"]["GET"]
-
-    @given(case=operation.as_strategy(generation_mode=GenerationMode.POSITIVE))
-    @settings(max_examples=30, deadline=None, suppress_health_check=list(HealthCheck))
-    def inner(case):
-        value = case.path_parameters["productName"]
-        upper = value.upper()
-        assert "%5C" not in upper, value
-        assert "%7F" not in upper, value
-        assert not any(f"%{i:02X}" in upper for i in range(0x20)), value
-
-    inner()

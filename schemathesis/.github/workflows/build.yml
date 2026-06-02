@@ -1,4 +1,5 @@
-name: CI
+name: Build jobs
+# Triggered by changes in code-specific or job-specific files
 
 on:
   pull_request:
@@ -16,10 +17,6 @@ on:
       - master
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   FORCE_COLOR: "1"
   TOX_TESTENV_PASSENV: FORCE_COLOR
@@ -28,129 +25,64 @@ jobs:
   pre-commit:
     name: Generic pre-commit checks
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4.1.6
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
 
-      - uses: astral-sh/setup-uv@v7
+      - run: pip install pre-commit
+      - run: pre-commit run --all-files
 
-      - run: uvx prek run --all-files
-
-  corpus-tooling:
-    name: Corpus tooling
+  docs:
+    name: Documentation
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4.1.6
         with:
           fetch-depth: 1
-
-      - uses: actions/setup-python@v6
+      - uses: ammaraskar/sphinx-action@master
         with:
-          python-version: "3.14"
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-          cache-suffix: corpus-tooling-3.14-v1
-
-      - run: uvx ruff check tools/corpus test/tooling/corpus
-
-      - run: uvx ruff format --check tools/corpus test/tooling/corpus
-
-      - run: uvx --with=".[tests]" --with=mypy --with=types-PyYAML mypy tools/corpus
-
-      - run: uv run --extra=tests pytest test/tooling/corpus -n auto -q
+          docs-folder: "docs/"
 
   tests:
     strategy:
       matrix:
-        os: [ubuntu-22.04, windows-2022]
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
+        os: [ubuntu-22.04, windows-2019]
+        python: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        # Set the patch version for "python", so GitHub adds these configurations instead of expanding existing ones
+        include:
+          - os: ubuntu-22.04
+            python: "3.9.16"
+            tox_env: pytest6
+          - os: ubuntu-22.04
+            python: "3.9.16"
+            tox_env: pytest53
       fail-fast: false
 
     name: Tests (Python ${{ matrix.python }} on ${{ matrix.os }} ${{ matrix.tox_env }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4.1.6
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
 
-      - uses: astral-sh/setup-uv@v7
-        with:
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-          cache-suffix: ${{ matrix.python }}-v2
+      - run: pip install tox tox-gh-actions
 
       - if: ${{ matrix.tox_env }}
-        run: uvx --with="tox" --with="tox-gh-actions" --with="tox-uv" tox -e ${{ matrix.tox_env }}
+        run: python -m tox -e ${{ matrix.tox_env }}
 
       - if: ${{ !matrix.tox_env }}
-        run: uvx --with="tox" --with="tox-gh-actions" --with="tox-uv" tox
+        run: python -m tox
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v6.0.0
+        uses: codecov/codecov-action@v4.4.1
         with:
-          files: coverage.xml
-          disable_search: true
-          fail_ci_if_error: true
-          verbose: true
           token: ${{ secrets.CODECOV_TOKEN }}
-
-  # On windows redirecting output to a file could lead to an error due to the default IO encoding being CP-1252
-  tests-pipe-with-encoding:
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, windows-2022]
-      fail-fast: false
-    name: Test piping output to a file with CP1252 encoding on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - uses: astral-sh/setup-uv@v7
-
-      - run: uv tool install ".[dev]"
-
-      - run: uv tool run schemathesis run /openapi.json --app=cp1252_app:app -c custom_check > out.txt || true
-        working-directory: ./test/apps
-        env:
-          SCHEMATHESIS_HOOKS: hooks
-          PYTHONIOENCODING: cp1252
-
-      - run: |
-          if grep -Fq "UnicodeEncodeError" "out.txt"; then
-            echo "Failed!"
-            exit 1
-          fi
-        working-directory: ./test/apps
-        shell: bash
-
-  spell-check:
-    name: Spell Check
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: crate-ci/typos@v1

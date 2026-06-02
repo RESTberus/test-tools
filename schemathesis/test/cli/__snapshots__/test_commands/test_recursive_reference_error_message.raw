@@ -1,61 +1,32 @@
 Exit code: 1
 ---
 Stdout:
-Schemathesis dev
-━━━━━━━━━━━━━━━━
+======================= Schemathesis test session starts =======================
+Schema location: file:///tmp/schema.json
+Base URL: http://127.0.0.1/api
+Specification version: Open API 3.0.0
+Random seed: 42
+Workers: 1
+Collected API operations: 1
+Collected API links: 0
+API probing: SUCCESS
+Schema analysis: SKIP
 
-
- ✅  Loaded specification from /tmp/schema.json (in 0.00s)
-
-     Base URL:         http://127.0.0.1/api
-     Specification:    Open API 3.0.0
-     Operations:       1 selected / 1 total
-
-
- ✅  API capabilities:
-
-     Supports NULL byte in headers:                            ✓
-     Accepts backslash and control characters in URL paths:    ✓
-
- 🚫  Examples (in 0.00s)
-
-     🚫 1 error
-
- 🚫  Coverage (in 0.00s)
-
-     🚫 1 error
-
- 🚫  Fuzzing (in 0.00s)
-
-     🚫 1 error
+POST /api/foo E                                                           [100%]
 
 ==================================== ERRORS ====================================
-__________________________________ POST /foo ___________________________________
-Schema Error
+________________________________ POST /api/foo _________________________________
+Unsupported Schema
 
-Schema `#/components/schemas/Node` has a required reference to itself
+Currently, Schemathesis can't generate data for this operation due to recursive references in the operation definition. See more information in this issue - https://github.com/schemathesis/schemathesis/issues/947
 
 Need more help?
     Join our Discord server: https://discord.gg/R9ASRAmHnA
 =================================== SUMMARY ====================================
 
-API Operations:
-  Selected: 1/1
-  Tested: 0
-  Errored: 1
+No checks were performed.
 
-Test Phases:
-  🚫 Examples
-  🚫 Coverage
-  🚫 Fuzzing
-  ⏭  Stateful (not applicable)
+Tip: Use the `--report` CLI option to visualize test results via Schemathesis.io.
+We run additional conformance checks on reports from public repos.
 
-Errors:
-  🚫 Schema Error: 1
-
-Test cases:
-  No test cases were generated
-
-Seed: 42
-
-=============================== 1 error in 1.00s ===============================
+============================== 1 errored in 1.00s ==============================

@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 AUTH_CLASS_NAME = "TokenAuth"
@@ -30,13 +32,13 @@ type Query {
 
 
 @pytest.mark.parametrize(
-    ("class_decorator", "pre_parametrize_decorator", "post_parametrize_decorator"),
-    [
+    "class_decorator, pre_parametrize_decorator, post_parametrize_decorator",
+    (
         ("@schemathesis.auth()", "", ""),
         ("@schema.auth()", "", ""),
         ("", f"@schema.auth({AUTH_CLASS_NAME})", ""),
         ("", "", f"@schema.auth({AUTH_CLASS_NAME})"),
-    ],
+    ),
     ids=("global", "schema", "test-pre-parametrize", "test-post-parametrize"),
 )
 def test_different_scopes(
@@ -134,7 +136,7 @@ def token():
         return {{"access_token": "{APP_TEST_TOKEN}"}}
     return {{"detail": "Unauthorized"}}, 401
 
-schema = schemathesis.openapi.from_wsgi("/schema.json", app=app)"""
+schema = schemathesis.from_wsgi("/schema.json", app=app)"""
     if python_app_type == "asgi":
         return f"""
 from fastapi import FastAPI, HTTPException
@@ -153,7 +155,7 @@ def token(data: AuthInput):
         return {{"access_token": "{APP_TEST_TOKEN}"}}
     raise HTTPException(status_code=401, detail="Unauthorized")
 
-schema = schemathesis.openapi.from_asgi("/openapi.json", app=app)
+schema = schemathesis.from_asgi("/openapi.json", app=app, force_schema_version="30")
 """
 
 
@@ -177,112 +179,86 @@ def test(case):
     result.assert_outcomes(passed=1)
 
 
-def test_requests_auth(ctx, testdir):
+def test_from_pytest_fixture(testdir):
+    # When auth is registered on a schema created via a pytest fixture
+    testdir.make_test(
+        f"""
+lazy_schema = schemathesis.from_pytest_fixture("simple_schema")
+
+TOKEN = "Foo"
+
+@lazy_schema.auth()
+class {AUTH_CLASS_NAME}:
+
+    def get(self, case, context):
+        return TOKEN
+
+    def set(self, case, data, context):
+        case.headers = case.headers or {{}}
+        case.headers["Authorization"] = f"Bearer {{data}}"
+
+@lazy_schema.parametrize()
+@settings(max_examples=2)
+def test(case):
+    assert case.headers is not None
+    assert case.headers["Authorization"] == f"Bearer {{TOKEN}}"
+        """,
+    )
+    result = testdir.runpytest("-s")
+    # Then there should be a way to get auth from them
+    result.assert_outcomes(passed=1)
+
+
+@pytest.mark.openapi_version("3.0")
+@pytest.mark.operations("success", "text")
+def test_requests_auth(testdir, app_schema, openapi3_base_url):
     # When the user registers auth from `requests`
-    api = ctx.openapi.apps.success_and_text()
     testdir.make_test(
         f"""
 from requests.auth import HTTPBasicAuth
 
-schema.config.update(base_url="{api.base_url}")
+schema.base_url = "{openapi3_base_url}"
 auth = HTTPBasicAuth("user", "pass")
 
-schema.auth.set_from_requests(auth).apply_to(method="GET", path="/api/success")
+schema.auth.set_from_requests(auth).apply_to(method="GET", path="/success")
 
 @schema.parametrize()
 @settings(max_examples=2)
 def test(case):
     case_auth = case.as_transport_kwargs().get("auth")
-    if case.operation.path == "/api/success":
+    if case.operation.path == "/success":
         assert case_auth is auth
-    if case.operation.path == "/api/text":
+    if case.operation.path == "/text":
         assert case_auth is None
         """,
-        schema=api.spec,
+        schema=app_schema,
     )
     result = testdir.runpytest("-s")
     # Then auth should be present in `as_transport_kwargs` output
     result.assert_outcomes(passed=2)
 
 
-def test_ignored_auth_with_wsgi(testdir):
-    testdir.make_test(
-        """
-from flask import Flask, request
-app = Flask(__name__)
-
-
-@app.route("/users/<int:user_id>")
-def get_user(user_id):
-    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or token != "secret-token":
-        return {"error": "Unauthorized"}, 401
-    return {"user_id": user_id}
-
-
-@app.route("/openapi.json")
-def openapi():
-    return {
-        "openapi": "3.0.3",
-        "info": {"version": "0.1", "title": "Test API"},
-        "paths": {
-            "/users/{user_id}": {
-                "get": {
-                    "parameters": [
-                        {
-                            "name": "user_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "integer"},
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "OK",
-                            "content": {
-                                "application/json": {"schema": {"type": "object"}}
-                            },
-                        },
-                        "401": {
-                            "description": "Unauthorized",
-                        },
-                        "404": {"description": "Not Found"},
-                    },
-                    "security": [{"MyBearer": []}],
-                }
-            }
-        },
-        "components": {
-            "securitySchemes": {
-                "MyBearer": {"type": "http", "scheme": "bearer"},
-            }
-        },
-    }
-
-
-schema = schemathesis.openapi.from_wsgi("/openapi.json", app)
-
-
-@schema.parametrize()
-@settings(max_examples=3)
-def test_api(case):
-    case.call_and_validate(headers={"Authorization": "Bearer secret-token"})
-""",
-    )
-    result = testdir.runpytest("-s")
-    result.assert_outcomes(passed=1)
-
-
-def test_conditional(ctx, testdir):
+@pytest.mark.openapi_version("3.0")
+@pytest.mark.operations("success", "text")
+def test_conditional(testdir, app_schema, openapi3_base_url):
     # When the user sets up multiple auths applied to different API operations
-    api = ctx.openapi.apps.success_and_text()
+    if sys.version_info < (3, 9):
+        dec1 = """
+auth = schema.auth()
+@auth.apply_to(method="GET", path="/text")"""
+        dec2 = """
+auth = schema.auth()
+@auth.apply_to(method="GET", path="/success")"""
+    else:
+        dec1 = '@schema.auth().apply_to(method="GET", path="/text")'
+        dec2 = '@schema.auth().apply_to(method="GET", path="/success")'
     testdir.make_test(
         f"""
-schema.config.update(base_url="{api.base_url}")
+schema.base_url = "{openapi3_base_url}"
 
 TOKEN_1 = "ABC"
 
-@schema.auth().apply_to(method="GET", path="/api/text")
+{dec1}
 class TokenAuth1:
     def get(self, case, context):
         return TOKEN_1
@@ -293,7 +269,7 @@ class TokenAuth1:
 
 TOKEN_2 = "DEF"
 
-@schema.auth().apply_to(method="GET", path="/api/success")
+{dec2}
 class TokenAuth2:
     def get(self, case, context):
         return TOKEN_2
@@ -306,422 +282,13 @@ class TokenAuth2:
 @settings(max_examples=2)
 def test(case):
     assert case.headers is not None
-    if case.operation.path == "/api/text":
+    if case.operation.path == "/text":
         expected = f"Bearer {{TOKEN_1}}"
-    if case.operation.path == "/api/success":
+    if case.operation.path == "/success":
         expected = f"Bearer {{TOKEN_2}}"
     assert case.headers["Authorization"] == expected
 """,
-        schema=api.spec,
+        schema=app_schema,
     )
     result = testdir.runpytest("-s")
     result.assert_outcomes(passed=2)
-
-
-def test_basic_auth_from_fixture_with_toml_config(ctx, testdir):
-    api = ctx.openapi.apps.success()
-    # When a user:
-    # 1. Has a schemathesis.toml with basic auth configured
-    # 2. Uses the pytest schema loader `schemathesis.pytest.from_fixture`
-    # 3. Calls `case.call()`
-    testdir.makefile(
-        ".toml",
-        schemathesis=f"""
-base-url = "{api.base_url}"
-[auth]
-basic = {{ username = "testuser", password = "testpass" }}
-""",
-    )
-
-    # Then the auth credentials from schemathesis.toml should be automatically applied to the request
-    testdir.makepyfile(
-        """
-import pytest
-import schemathesis
-from hypothesis import settings, Phase
-
-@pytest.fixture
-def api_schema():
-    raw_schema = {
-        "openapi": "3.0.0",
-        "paths": {
-            "/success": {
-                "get": {
-                    "responses": {"200": {"description": "OK"}}
-                }
-            }
-        }
-    }
-    return schemathesis.openapi.from_dict(raw_schema)
-
-lazy_schema = schemathesis.pytest.from_fixture("api_schema")
-
-@lazy_schema.parametrize()
-@settings(max_examples=1, phases=[Phase.generate])
-def test_api_with_auth(case):
-    # Auth from config is applied as Authorization header
-    assert case.headers.get("Authorization") == "Basic dGVzdHVzZXI6dGVzdHBhc3M="
-"""
-    )
-    result = testdir.runpytest()
-    result.assert_outcomes(passed=1)
-
-
-def test_headers_from_fixture_with_toml_config(ctx, testdir):
-    api = ctx.openapi.apps.success()
-    # When headers are configured in schemathesis.toml
-    testdir.makefile(
-        ".toml",
-        schemathesis=f"""
-base-url = "{api.base_url}"
-[headers]
-X-API-Key = "secret-key"
-X-Client-ID = "test-client"
-""",
-    )
-
-    # Then headers should be automatically applied to cases when using from_fixture
-    testdir.makepyfile(
-        """
-import pytest
-import schemathesis
-from hypothesis import settings, Phase
-
-@pytest.fixture
-def api_schema():
-    return schemathesis.openapi.from_dict({
-        "openapi": "3.0.0",
-        "paths": {
-            "/success": {
-                "get": {
-                    "responses": {"200": {"description": "OK"}}
-                }
-            }
-        }
-    })
-
-lazy_schema = schemathesis.pytest.from_fixture("api_schema")
-
-@lazy_schema.parametrize()
-@settings(max_examples=1, phases=[Phase.generate])
-def test_api_with_headers(case):
-    assert case.headers.get("X-API-Key") == "secret-key"
-    assert case.headers.get("X-Client-ID") == "test-client"
-"""
-    )
-    result = testdir.runpytest()
-    result.assert_outcomes(passed=1)
-
-
-def test_overrides_from_fixture_with_toml_config(ctx, testdir):
-    api = ctx.openapi.apps.success()
-    # When operation-specific overrides are configured in schemathesis.toml
-    testdir.makefile(
-        ".toml",
-        schemathesis=f"""
-base-url = "{api.base_url}"
-
-[[operations]]
-include-path = "/success"
-parameters = {{ id = 42, status = "active" }}
-""",
-    )
-
-    # Then overrides should be automatically applied to cases when using from_fixture
-    testdir.makepyfile(
-        """
-import pytest
-import schemathesis
-from hypothesis import settings, Phase
-
-@pytest.fixture
-def api_schema():
-    return schemathesis.openapi.from_dict({
-        "openapi": "3.0.0",
-        "paths": {
-            "/success": {
-                "get": {
-                    "parameters": [
-                        {"name": "id", "in": "query", "schema": {"type": "integer"}},
-                        {"name": "status", "in": "query", "schema": {"type": "string"}}
-                    ],
-                    "responses": {"200": {"description": "OK"}}
-                }
-            }
-        }
-    })
-
-lazy_schema = schemathesis.pytest.from_fixture("api_schema")
-
-@lazy_schema.parametrize()
-@settings(max_examples=1, phases=[Phase.generate])
-def test_api_with_overrides(case):
-    assert case.query.get("id") == 42
-    assert case.query.get("status") == "active"
-"""
-    )
-    result = testdir.runpytest()
-    result.assert_outcomes(passed=1)
-
-
-def test_openapi_basic_auth_applied_via_wsgi(testdir):
-    # See GH-3575
-    # When [auth.openapi.BasicAuth] is configured and the app uses WSGI transport,
-    # the auth should be applied (sent as Authorization header).
-    testdir.makefile(
-        ".toml",
-        schemathesis="""
-[auth.openapi.BasicAuth]
-username = "testuser"
-password = "testpass"
-""",
-    )
-    testdir.makepyfile(
-        """
-import pytest
-import schemathesis
-from hypothesis import settings, Phase
-from flask import Flask, request as flask_request
-
-app = Flask(__name__)
-
-@app.route("/protected")
-def protected():
-    auth = flask_request.authorization
-    if not auth or auth.username != "testuser" or auth.password != "testpass":
-        return {"error": "Unauthorized"}, 401
-    return {"message": "OK"}
-
-@app.route("/openapi.json")
-def openapi_spec():
-    return {
-        "openapi": "3.0.0",
-        "info": {"title": "Test API", "version": "1.0.0"},
-        "paths": {
-            "/protected": {
-                "get": {
-                    "security": [{"BasicAuth": []}],
-                    "responses": {
-                        "200": {"description": "OK"},
-                        "401": {"description": "Unauthorized"}
-                    }
-                }
-            }
-        },
-        "components": {
-            "securitySchemes": {
-                "BasicAuth": {"type": "http", "scheme": "basic"}
-            }
-        }
-    }
-
-@pytest.fixture
-def api_schema():
-    return schemathesis.openapi.from_wsgi("/openapi.json", app)
-
-lazy_schema = schemathesis.pytest.from_fixture("api_schema")
-
-@lazy_schema.parametrize()
-@settings(max_examples=1, phases=[Phase.generate])
-def test_api(case):
-    response = case.call()
-    assert response.status_code == 200, f"Expected 200 but got {response.status_code} - auth was not applied"
-"""
-    )
-    result = testdir.runpytest("-s")
-    result.assert_outcomes(passed=1)
-
-
-def test_unused_openapi_auth_warning_in_pytest_mode(testdir):
-    # See GH-3575
-    # When a user configures [auth.openapi.WRONG_SCHEME] but WRONG_SCHEME doesn't exist
-    # in the schema's securitySchemes, a warning should be emitted.
-    testdir.makefile(
-        ".toml",
-        schemathesis="""
-[auth.openapi.WRONG_MISSING_AUTH]
-username = "testuser"
-password = "testpass"
-""",
-    )
-    testdir.makepyfile(
-        """
-import pytest
-import schemathesis
-from hypothesis import settings, Phase
-
-raw_schema = {
-    "openapi": "3.0.0",
-    "info": {"title": "Test API", "version": "1.0.0"},
-    "paths": {
-        "/protected": {
-            "get": {
-                "security": [{"BasicAuth": []}],
-                "responses": {"200": {"description": "OK"}}
-            }
-        }
-    },
-    "components": {
-        "securitySchemes": {
-            "BasicAuth": {"type": "http", "scheme": "basic"}
-        }
-    }
-}
-
-@pytest.fixture
-def api_schema():
-    return schemathesis.openapi.from_dict(raw_schema)
-
-lazy_schema = schemathesis.pytest.from_fixture("api_schema")
-
-@lazy_schema.parametrize()
-@settings(max_examples=1, phases=[Phase.generate])
-def test_api(case):
-    pass
-"""
-    )
-    result = testdir.runpytest("-W", "always")
-    # The unused OpenAPI auth scheme warning should be emitted
-    result.stdout.re_match_lines([r".*WRONG_MISSING_AUTH.*"])
-
-
-def test_lazy_schema_auth_decorator(testdir):
-    testdir.make_test(
-        """
-lazy_schema = schemathesis.pytest.from_fixture("simple_schema")
-
-TOKEN = "Foo"
-
-@lazy_schema.auth()
-class TokenAuth:
-    def get(self, case, context):
-        return TOKEN
-
-    def set(self, case, data, context):
-        case.headers = case.headers or {}
-        case.headers["Authorization"] = f"Bearer {data}"
-
-@lazy_schema.parametrize()
-@settings(max_examples=2)
-def test(case):
-    assert case.headers is not None
-    assert case.headers["Authorization"] == f"Bearer {TOKEN}"
-"""
-    )
-    result = testdir.runpytest("-s")
-    result.assert_outcomes(passed=1)
-
-
-def test_lazy_schema_auth_apply(testdir):
-    testdir.make_test(
-        """
-lazy_schema = schemathesis.pytest.from_fixture("simple_schema")
-
-TOKEN = "Bar"
-
-class TokenAuth:
-    def get(self, case, context):
-        return TOKEN
-
-    def set(self, case, data, context):
-        case.headers = case.headers or {}
-        case.headers["Authorization"] = f"Bearer {data}"
-
-@lazy_schema.parametrize()
-@lazy_schema.auth(TokenAuth)
-@settings(max_examples=2)
-def test(case):
-    assert case.headers is not None
-    assert case.headers["Authorization"] == f"Bearer {TOKEN}"
-"""
-    )
-    result = testdir.runpytest("-s")
-    result.assert_outcomes(passed=1)
-
-
-def test_lazy_schema_auth_set_from_requests(testdir):
-    testdir.make_test(
-        """
-from requests.auth import HTTPBasicAuth
-
-lazy_schema = schemathesis.pytest.from_fixture("simple_schema")
-
-auth = HTTPBasicAuth("user", "pass")
-lazy_schema.auth.set_from_requests(auth)
-
-@lazy_schema.parametrize()
-@settings(max_examples=2)
-def test(case):
-    assert case.as_transport_kwargs().get("auth") is auth
-"""
-    )
-    result = testdir.runpytest("-s")
-    result.assert_outcomes(passed=1)
-
-
-def test_lazy_schema_auth_takes_precedence_over_fixture_auth(testdir):
-    testdir.make_test(
-        """
-LAZY_TOKEN = "from-lazy"
-FIXTURE_TOKEN = "from-fixture"
-
-@pytest.fixture
-def api_schema(simple_schema):
-    @simple_schema.auth()
-    class FixtureAuth:
-        def get(self, case, context):
-            return FIXTURE_TOKEN
-
-        def set(self, case, data, context):
-            case.headers = case.headers or {}
-            case.headers["Authorization"] = f"Bearer {data}"
-
-    return simple_schema
-
-lazy_schema = schemathesis.pytest.from_fixture("api_schema")
-
-@lazy_schema.auth()
-class LazyAuth:
-    def get(self, case, context):
-        return LAZY_TOKEN
-
-    def set(self, case, data, context):
-        case.headers = case.headers or {}
-        case.headers["Authorization"] = f"Bearer {data}"
-
-@lazy_schema.parametrize()
-@settings(max_examples=2)
-def test(case):
-    assert case.headers["Authorization"] == f"Bearer {LAZY_TOKEN}"
-"""
-    )
-    result = testdir.runpytest("-s")
-    result.assert_outcomes(passed=1)
-
-
-def test_lazy_schema_auth_does_not_leak_to_fixture_schema(testdir):
-    testdir.make_test(
-        """
-lazy_schema = schemathesis.pytest.from_fixture("simple_schema")
-
-TOKEN = "Baz"
-
-@lazy_schema.auth()
-class TokenAuth:
-    def get(self, case, context):
-        return TOKEN
-
-    def set(self, case, data, context):
-        case.headers = case.headers or {}
-        case.headers["Authorization"] = f"Bearer {data}"
-
-@lazy_schema.parametrize()
-@settings(max_examples=2)
-def test(case, simple_schema):
-    # The fixture's underlying schema must not have lazy-registered providers
-    assert simple_schema.auth.is_defined is False
-    assert case.headers["Authorization"] == f"Bearer {TOKEN}"
-"""
-    )
-    result = testdir.runpytest("-s")
-    result.assert_outcomes(passed=1)

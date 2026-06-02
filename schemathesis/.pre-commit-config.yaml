@@ -3,12 +3,12 @@ default_language_version:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: v4.6.0
     hooks:
+      - id: check-yaml
       - id: end-of-file-fixer
-        exclude: ^.*\.raw$
       - id: trailing-whitespace
-        exclude: ^.*\.(md|raw|ambr)$
+        exclude: ^.*\.(md|rst|raw)$
       - id: debug-statements
       - id: mixed-line-ending
         args: [--fix=lf]
@@ -20,21 +20,40 @@ repos:
       - id: gitlint
 
   - repo: https://github.com/adrienverge/yamllint
-    rev: v1.38.0
+    rev: v1.35.1
     hooks:
       - id: yamllint
 
+  - repo: https://github.com/codingjoe/relint
+    rev: 3.1.1
+    hooks:
+      - id: relint
+
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.1.0
+    rev: v1.10.0
     hooks:
       - id: mypy
         exclude: ^(docs/|test/|test-corpus/|example/|benches/).*$
         args: ["--ignore-missing-imports"]
-        additional_dependencies: [types-requests, types-PyYAML]
+        additional_dependencies: [types-click, types-requests, types-PyYAML]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.13
+    rev: v0.4.5
     hooks:
       - id: ruff-format
-      - id: ruff-check
-        args: [--fix]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.5
+    hooks:
+      - id: ruff
+
+  - repo: https://github.com/myint/rstcheck
+    rev: v6.2.0
+    hooks:
+      - id: rstcheck
+        additional_dependencies:
+          - sphinx==7.1.2
+          - sphinx_rtd_theme==1.3
+          - sphinx-click==5.1
+        args:
+          - --ignore-roles=issue,version

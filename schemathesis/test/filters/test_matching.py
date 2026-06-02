@@ -1,12 +1,11 @@
 import re
-from itertools import starmap
 
 import pytest
 
 import schemathesis
 from schemathesis import filters
-from schemathesis.core.errors import IncorrectUsage
-from schemathesis.schemas import APIOperation
+from schemathesis.exceptions import UsageError
+from schemathesis.models import APIOperation
 
 RAW_SCHEMA = {
     "openapi": "3.0.2",
@@ -16,13 +15,11 @@ RAW_SCHEMA = {
             "get": {
                 "responses": {"200": {"description": "OK"}},
                 "tags": ["Users"],
-                "operationId": "getUsers",
             },
             "post": {"deprecated": True, "responses": {"200": {"description": "OK"}}, "tags": ["Users"]},
         },
         "/users/{user_id}/": {
             "patch": {
-                "operationId": "patchUser",
                 "responses": {"200": {"description": "OK"}},
             },
         },
@@ -32,7 +29,7 @@ RAW_SCHEMA = {
         },
     },
 }
-SCHEMA = schemathesis.openapi.from_dict(RAW_SCHEMA)
+SCHEMA = schemathesis.from_dict(RAW_SCHEMA)
 USERS_GET = SCHEMA["/users/"]["GET"]
 USERS_POST = SCHEMA["/users/"]["POST"]
 USER_ID_PATCH = SCHEMA["/users/{user_id}/"]["PATCH"]
@@ -54,9 +51,6 @@ SINGLE_INCLUDE_CASES = (
     ({"name": ["GET /users/", "POST /orders/"]}, [USERS_GET, ORDERS_POST]),
     ({"name_regex": "^P.+ /(users|orders)/"}, [USERS_POST, USER_ID_PATCH, ORDERS_POST]),
     ({"name_regex": re.compile("^p.+ /(USERS|orders)/", re.IGNORECASE)}, [USERS_POST, USER_ID_PATCH, ORDERS_POST]),
-    ({"operation_id": "getUsers"}, [USERS_GET]),
-    ({"operation_id": ["getUsers", "patchUser"]}, [USERS_GET, USER_ID_PATCH]),
-    ({"operation_id_regex": ".+Use.+"}, [USERS_GET, USER_ID_PATCH]),
 )
 MULTI_INCLUDE_CASES = [
     (({"path": "/users/"}, {"path": "/orders/"}), NO_PATCH),
@@ -85,13 +79,13 @@ def case_id(case):
         return key
 
     def fmt_kwargs(kwargs):
-        return ",".join(starmap(fmt_item, kwargs.items()))
+        return ",".join(fmt_item(key, value) for key, value in kwargs.items())
 
     return "-".join(f"{kind}-{fmt_kwargs(kwargs)}" for kind, kwargs in case)
 
 
 @pytest.mark.parametrize(
-    ("chain", "expected"),
+    "chain, expected",
     [
         (
             [("include", kwargs)],
@@ -139,16 +133,9 @@ def case_id(case):
 )
 def test_matchers(chain, expected):
     filter_set = filters.FilterSet()
-    schema = SCHEMA
     for method, kwargs in chain:
         getattr(filter_set, method)(**kwargs)
-        schema = getattr(schema, method)(**kwargs)
-    assert applies_to(filter_set, OPERATIONS) == expected
-    assert applies_to(schema.filter_set, OPERATIONS) == expected
-
-
-def applies_to(filter_set, operations) -> list[APIOperation]:
-    return [operation for operation in operations if filter_set.applies_to(operation=operation)]
+    assert filter_set.apply_to(OPERATIONS) == expected
 
 
 def matcher_func(ctx):
@@ -156,8 +143,8 @@ def matcher_func(ctx):
 
 
 @pytest.mark.parametrize(
-    ("matchers", "expected"),
-    [
+    "matchers, expected",
+    (
         ([filters.Matcher.for_function(matcher_func)], "<Filter: [matcher_func]>"),
         ([filters.Matcher.for_function(lambda ctx: True)], "<Filter: [<lambda>]>"),
         ([filters.Matcher.for_value("method", "POST")], "<Filter: [method='POST']>"),
@@ -170,7 +157,7 @@ def matcher_func(ctx):
             [filters.Matcher.for_regex("path", re.compile("^/u", re.IGNORECASE))],
             "<Filter: [path_regex=re.compile('^/u', re.IGNORECASE)]>",
         ),
-    ],
+    ),
 )
 def test_filter_repr(matchers, expected):
     assert repr(filters.Filter(matchers)) == expected
@@ -180,38 +167,8 @@ def test_matcher_repr():
     assert repr(filters.Matcher.for_value("method", "POST")) == "<Matcher: method='POST'>"
 
 
-@pytest.mark.parametrize(
-    ("args", "kwargs", "expected"),
-    [
-        (
-            (matcher_func,),
-            {},
-            "[<Filter: [matcher_func]>]",
-        ),
-        (
-            (matcher_func,),
-            {"deprecated": True},
-            "[<Filter: [is_deprecated]>, <Filter: [matcher_func]>]",
-        ),
-        (
-            (),
-            {"deprecated": True},
-            "[<Filter: [is_deprecated]>]",
-        ),
-    ],
-)
-def test_exclude_custom(args, kwargs, expected):
-    lazy_schema = schemathesis.pytest.from_fixture("name")
-    schemas = [SCHEMA, lazy_schema]
-    for schema in schemas:
-        assert (
-            repr(sorted(schema.exclude(*args, **kwargs).filter_set._excludes, key=lambda x: x.matchers[0].label))
-            == expected
-        )
-
-
 def test_sanity_checks():
-    with pytest.raises(IncorrectUsage, match=filters.ERROR_EMPTY_FILTER):
+    with pytest.raises(UsageError, match=filters.ERROR_EMPTY_FILTER):
         filters.FilterSet().include()
 
 
@@ -225,28 +182,28 @@ def test_attach_filter_chain():
     assert auth.apply_to(method="GET", path="/users/") is auth
     assert not filter_set.is_empty()
     assert len(filter_set._includes) == 1
-    assert repr(next(iter(filter_set._includes))) == "<Filter: [method='GET' && path='/users/']>"
+    assert repr(list(filter_set._includes)[0]) == "<Filter: [method='GET' && path='/users/']>"
 
 
-@pytest.mark.parametrize("method", [filters.FilterSet.include, filters.FilterSet.exclude])
+@pytest.mark.parametrize("method", (filters.FilterSet.include, filters.FilterSet.exclude))
 @pytest.mark.parametrize(
     "kwargs",
-    [
+    (
         {"name": "foo"},
         {"func": matcher_func},
         {"func": matcher_func, "method": "POST"},
         {"func": lambda o: True},
-    ],
+    ),
 )
 def test_repeating_filter(method, kwargs):
     # Adding the same filter twice is an error
     filter_set = filters.FilterSet()
     filter_set.include(**kwargs)
-    with pytest.raises(IncorrectUsage, match=filters.ERROR_FILTER_EXISTS):
+    with pytest.raises(UsageError, match=filters.ERROR_FILTER_EXISTS):
         method(filter_set, **kwargs)
 
 
 def test_forbid_value_and_auth():
     filter_set = filters.FilterSet()
-    with pytest.raises(IncorrectUsage, match=filters.ERROR_EXPECTED_AND_REGEX):
+    with pytest.raises(UsageError, match=filters.ERROR_EXPECTED_AND_REGEX):
         filter_set.include(method="POST", method_regex="GET")

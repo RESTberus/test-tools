@@ -1,220 +1,92 @@
 from __future__ import annotations
-
-from collections.abc import Callable
 from dataclasses import dataclass
-from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Callable, Dict, List, Iterator
 
-from schemathesis.core import NOT_SET, NotSet
-from schemathesis.core.errors import InvalidTransition, OperationNotFound, TransitionValidationError, format_transition
-from schemathesis.core.parameters import ContainerName, ParameterLocation
-from schemathesis.core.result import Err, Ok, Result
-from schemathesis.generation.stateful.state_machine import ExtractedParam, StepOutput, Transition
-from schemathesis.schemas import APIOperation
-from schemathesis.specs.openapi import expressions
+import hypothesis.strategies as st
+from requests.structures import CaseInsensitiveDict
+
+from ..links import OpenAPILink, get_all_links
+from ..utils import expand_status_code
 
 if TYPE_CHECKING:
-    from schemathesis.specs.openapi.schemas import OpenApiOperation
+    from ....stateful.state_machine import StepResult
+    from ....models import APIOperation
 
-SCHEMATHESIS_LINK_EXTENSION = "x-schemathesis"
-
-
-@dataclass(slots=True)
-class NormalizedParameter:
-    """Processed link parameter with resolved container information."""
-
-    location: ParameterLocation | None
-    name: str
-    expression: str
-    container_name: ContainerName
-    is_required: bool
+FilterFunction = Callable[["StepResult"], bool]
 
 
-@dataclass(repr=False)
-class OpenApiLink:
-    """Represents an OpenAPI link between operations."""
+@dataclass
+class Connection:
+    source: str
+    strategy: st.SearchStrategy[tuple[StepResult, OpenAPILink]]
 
-    name: str
-    status_code: str
-    source: APIOperation
-    target: APIOperation
-    parameters: list[NormalizedParameter]
-    body: dict[str, Any] | NotSet
-    merge_body: bool
-    is_inferred: bool
 
-    __slots__ = (
-        "name",
-        "status_code",
-        "source",
-        "target",
-        "parameters",
-        "body",
-        "merge_body",
-        "is_inferred",
-        "_cached_extract",
-    )
+APIOperationConnections = Dict[str, List[Connection]]
 
-    def __init__(self, name: str, status_code: str, definition: dict[str, Any], source: OpenApiOperation):
-        self.name = name
-        self.status_code = status_code
-        self.source = source
-        errors = []
 
-        get_operation: Callable[[str], APIOperation]
-        if "operationId" in definition:
-            operation_reference = definition["operationId"]
-            get_operation = source.schema.find_operation_by_id
-        else:
-            operation_reference = definition["operationRef"]
-            get_operation = source.schema.find_operation_by_reference
-
-        try:
-            self.target = get_operation(operation_reference)
-            target = self.target.label
-        except OperationNotFound:
-            target = operation_reference
-            errors.append(TransitionValidationError(f"Operation '{operation_reference}' not found"))
-
-        extension = definition.get(SCHEMATHESIS_LINK_EXTENSION)
-        self.parameters = self._normalize_parameters(definition.get("parameters", {}), errors)
-        self.body = definition.get("requestBody", NOT_SET)
-        self.merge_body = extension.get("merge_body", True) if extension else True
-        self.is_inferred = extension.get("is_inferred", False) if extension else False
-
-        if errors:
-            raise InvalidTransition(
-                name=self.name,
-                source=self.source.label,
-                target=target,
-                status_code=self.status_code,
-                errors=errors,
-            )
-
-        self._cached_extract = lru_cache(8)(self._extract_impl)
-
-    @property
-    def full_name(self) -> str:
-        return format_transition(self.source.label, self.status_code, self.name, self.target.label)
-
-    def _normalize_parameters(
-        self, parameters: dict[str, str], errors: list[TransitionValidationError]
-    ) -> list[NormalizedParameter]:
-        """Process link parameters and resolve their container locations.
-
-        Handles both explicit locations (e.g., "path.id") and implicit ones resolved from target operation.
-        """
-        result = []
-        for parameter, expression in parameters.items():
-            location: ParameterLocation | None
-            try:
-                # The parameter name is prefixed with its location. Example: `path.id`
-                _location, name = tuple(parameter.split("."))
-                location = ParameterLocation(_location)
-            except ValueError:
-                location = None
-                name = parameter
-
-            if isinstance(expression, str):
-                try:
-                    parsed = expressions.parser.parse(expression)
-                    # Find NonBodyRequest nodes that reference source parameters
-                    for node in parsed:
-                        if isinstance(node, expressions.nodes.NonBodyRequest):
-                            # Check if parameter exists in source operation
-                            if not any(
-                                p.name == node.parameter and p.location == node.location
-                                for p in self.source.iter_parameters()
-                            ):
-                                errors.append(
-                                    TransitionValidationError(
-                                        f"Expression `{expression}` references non-existent {node.location} parameter "
-                                        f"`{node.parameter}` in `{self.source.label}`"
-                                    )
-                                )
-                except Exception as exc:
-                    errors.append(TransitionValidationError(str(exc)))
-
-            is_required = False
-            if hasattr(self, "target"):
-                try:
-                    container_name = self._get_parameter_container(location, name)
-                except TransitionValidationError as exc:
-                    errors.append(exc)
-                    continue
-
-                for param in self.target.iter_parameters():
-                    if param.name == name:
-                        is_required = param.is_required
-                        break
-            else:
-                continue
-            result.append(NormalizedParameter(location, name, expression, container_name, is_required=is_required))
-        return result
-
-    def _get_parameter_container(self, location: ParameterLocation | None, name: str) -> ContainerName:
-        """Resolve parameter container either from explicit location or by looking up in target operation."""
-        if location:
-            return location.container_name
-
-        for param in self.target.iter_parameters():
-            if param.name == name:
-                return param.location.container_name
-        raise TransitionValidationError(f"Parameter `{name}` is not defined in API operation `{self.target.label}`")
-
-    def extract(self, output: StepOutput) -> Transition:
-        return self._cached_extract(StepOutputWrapper(output))
-
-    def _extract_impl(self, wrapper: StepOutputWrapper) -> Transition:
-        output = wrapper.output
-        return Transition(
-            id=self.full_name,
-            parent_id=output.case.id,
-            is_inferred=self.is_inferred,
-            parameters=self.extract_parameters(output),
-            request_body=self.extract_body(output),
+def apply(
+    operation: APIOperation,
+    bundles: dict[str, CaseInsensitiveDict],
+    connections: APIOperationConnections,
+) -> None:
+    """Gather all connections based on Open API links definitions."""
+    all_status_codes = operation.definition.raw["responses"].keys()
+    for status_code, link in get_all_links(operation):
+        target_operation = link.get_target_operation()
+        strategy = bundles[operation.path][operation.method.upper()].filter(
+            make_response_filter(status_code, all_status_codes)
         )
-
-    def extract_parameters(self, output: StepOutput) -> dict[ContainerName, dict[str, ExtractedParam]]:
-        """Extract parameters using runtime expressions.
-
-        Returns a two-level dictionary: container -> parameter name -> extracted value
-        """
-        eval_fn = expressions.evaluate_wildcard if self.is_inferred else expressions.evaluate
-        extracted: dict[ContainerName, dict[str, ExtractedParam]] = {}
-        for parameter in self.parameters:
-            container = extracted.setdefault(parameter.container_name, {})
-            value: Result[Any, Exception]
-            try:
-                value = Ok(eval_fn(parameter.expression, output))
-            except Exception as exc:
-                value = Err(exc)
-            container[parameter.name] = ExtractedParam(
-                definition=parameter.expression, value=value, is_required=parameter.is_required
-            )
-        return extracted
-
-    def extract_body(self, output: StepOutput) -> ExtractedParam | None:
-        if not isinstance(self.body, NotSet):
-            value: Result[Any, Exception]
-            try:
-                # `body` is `dict | NotSet`, never `str` — no wildcard expression to route.
-                value = Ok(expressions.evaluate(self.body, output, evaluate_nested=True))
-            except Exception as exc:
-                value = Err(exc)
-            return ExtractedParam(definition=self.body, value=value, is_required=True)
-        return None
+        connection = Connection(source=operation.verbose_name, strategy=_convert_strategy(strategy, link))
+        connections[target_operation.verbose_name].append(connection)
 
 
-@dataclass(slots=True)
-class StepOutputWrapper:
-    """Wrapper for StepOutput that uses only case_id for hash-based caching."""
+def _convert_strategy(
+    strategy: st.SearchStrategy[StepResult], link: OpenAPILink
+) -> st.SearchStrategy[tuple[StepResult, OpenAPILink]]:
+    # This function is required to capture values properly (it won't work properly when lambda is defined in a loop)
+    return strategy.map(lambda out: (out, link))
 
-    output: StepOutput
 
-    def __hash__(self) -> int:
-        return hash(self.output.case.id)
+def make_response_filter(status_code: str, all_status_codes: Iterator[str]) -> FilterFunction:
+    """Create a filter for stored responses.
 
-    def __eq__(self, other: object) -> bool:
-        assert isinstance(other, StepOutputWrapper)
-        return self.output.case.id == other.output.case.id
+    This filter will decide whether some response is suitable to use as a source for requesting some API operation.
+    """
+    if status_code == "default":
+        return default_status_code(all_status_codes)
+    return match_status_code(status_code)
+
+
+def match_status_code(status_code: str) -> FilterFunction:
+    """Create a filter function that matches all responses with the given status code.
+
+    Note that the status code can contain "X", which means any digit.
+    For example, 50X will match all status codes from 500 to 509.
+    """
+    status_codes = set(expand_status_code(status_code))
+
+    def compare(result: StepResult) -> bool:
+        return result.response.status_code in status_codes
+
+    # This name is displayed in the resulting strategy representation. For example, if you run your tests with
+    # `--hypothesis-show-statistics`, then you can see `Bundle(name='GET /users/{user_id}').filter(match_200_response)`
+    # which gives you information about the particularly used filter.
+    compare.__name__ = f"match_{status_code}_response"
+
+    return compare
+
+
+def default_status_code(status_codes: Iterator[str]) -> FilterFunction:
+    """Create a filter that matches all "default" responses.
+
+    In Open API, the "default" response is the one that is used if no other options were matched.
+    Therefore, we need to match only responses that were not matched by other listed status codes.
+    """
+    expanded_status_codes = {
+        status_code for value in status_codes if value != "default" for status_code in expand_status_code(value)
+    }
+
+    def match_default_response(result: StepResult) -> bool:
+        return result.response.status_code not in expanded_status_codes
+
+    return match_default_response

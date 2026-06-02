@@ -2,23 +2,24 @@
 
 import pytest
 
-from schemathesis.schemas import PayloadAlternatives
-from schemathesis.specs.openapi.adapter import v2, v3_0
-from schemathesis.specs.openapi.adapter.parameters import OpenApiBody
+import schemathesis
+from schemathesis.parameters import PayloadAlternatives
+from schemathesis.specs.openapi.parameters import OpenAPI20Body, OpenAPI30Body
 
 
 @pytest.mark.parametrize(
     "consumes",
-    [
+    (
         ["application/json"],
         # Multiple values in "consumes" implies multiple payload variants
         ["application/json", "application/xml"],
-    ],
+    ),
 )
 def test_payload_open_api_2(
     consumes,
     assert_parameters,
     make_openapi_2_schema,
+    open_api_2_user_form_with_file_parameters,
     open_api_2_user_in_body,
     user_jsonschema,
 ):
@@ -27,17 +28,7 @@ def test_payload_open_api_2(
     assert_parameters(
         schema,
         PayloadAlternatives(
-            [
-                OpenApiBody.from_definition(
-                    definition=open_api_2_user_in_body,
-                    is_required=False,
-                    media_type=value,
-                    resource_name=None,
-                    name_to_uri={},
-                    adapter=v2,
-                )
-                for value in consumes
-            ]
+            [OpenAPI20Body(definition=open_api_2_user_in_body, media_type=value) for value in consumes]
         ),
         # For each one the schema is extracted from the parameter definition and transformed to the proper JSON Schema
         [user_jsonschema] * len(consumes),
@@ -46,13 +37,13 @@ def test_payload_open_api_2(
 
 @pytest.mark.parametrize(
     "media_types",
-    [
+    (
         ["application/json"],
         # Each media type corresponds to a payload variant
         ["application/json", "application/xml"],
         # Forms can be also combined
         ["application/x-www-form-urlencoded", "multipart/form-data"],
-    ],
+    ),
 )
 def test_payload_open_api_3(media_types, assert_parameters, make_openapi_3_schema, open_api_3_user, user_jsonschema):
     schema = make_openapi_3_schema(
@@ -65,14 +56,7 @@ def test_payload_open_api_3(media_types, assert_parameters, make_openapi_3_schem
         schema,
         PayloadAlternatives(
             [
-                OpenApiBody.from_definition(
-                    definition={"schema": open_api_3_user},
-                    media_type=media_type,
-                    is_required=True,
-                    resource_name=None,
-                    name_to_uri={},
-                    adapter=v3_0,
-                )
+                OpenAPI30Body(definition={"schema": open_api_3_user}, media_type=media_type, required=True)
                 for media_type in media_types
             ]
         ),
@@ -82,10 +66,12 @@ def test_payload_open_api_3(media_types, assert_parameters, make_openapi_3_schem
     )
 
 
-def test_parameter_set_get(ctx, make_openapi_3_schema):
+def test_parameter_set_get(make_openapi_3_schema):
     header = {"in": "header", "name": "id", "required": True, "schema": {}}
     raw_schema = make_openapi_3_schema(parameters=[header])
-    schema = ctx.openapi.load_schema(raw_schema["paths"])
+    schema = schemathesis.from_dict(raw_schema)
     headers = schema["/users"]["POST"].headers
     assert "id" in headers
+    assert headers.contains("id")
+    assert not headers.contains("foo")
     assert "foo" not in headers

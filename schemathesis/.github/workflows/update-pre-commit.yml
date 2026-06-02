@@ -10,17 +10,16 @@ jobs:
     name: Update pre-commit
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4.1.6
         with:
           fetch-depth: 1
           submodules: true
 
-      - uses: astral-sh/setup-uv@v7
-
-      - run: uvx prek autoupdate
+      - run: pip install pre-commit
+      - run: pre-commit autoupdate
 
       - name: Open pull request
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           delete-branch: true

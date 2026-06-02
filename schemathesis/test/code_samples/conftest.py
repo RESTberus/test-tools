@@ -1,26 +1,16 @@
-from __future__ import annotations
-
-import shlex
-from dataclasses import dataclass, field
-
 import pytest
 
-
-@dataclass
-class CurlWrapper:
-    testdir: field()
-
-    def run(self, command: str):
-        if "⚠️" in command:
-            command = command.split("⚠️")[0].strip()
-        return self.testdir.run(*shlex.split(command))
-
-    def assert_valid(self, command: str):
-        result = self.run(command)
-        if result.ret != 0:
-            assert "Failed to connect" in result.stderr.lines[-1]
+import schemathesis
 
 
 @pytest.fixture
-def curl(testdir):
-    return CurlWrapper(testdir)
+def loose_schema(empty_open_api_2_schema):
+    empty_open_api_2_schema["paths"] = {
+        "/test/{key}": {
+            "post": {
+                "parameters": [{"name": "key", "in": "path"}],
+                "responses": {"default": {"description": "OK"}},
+            }
+        }
+    }
+    return schemathesis.from_dict(empty_open_api_2_schema, base_url="http://127.0.0.1:1", validate_schema=False)

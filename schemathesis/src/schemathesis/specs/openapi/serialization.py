@@ -1,17 +1,12 @@
 from __future__ import annotations
-
 import json
-from collections.abc import Callable, Generator, Mapping
-from typing import Any
-from urllib.parse import quote
+from typing import Any, Callable, Dict, Generator, List
 
-from schemathesis.core.jsonschema import maybe_resolve_bundled
-from schemathesis.core.parameters import RAW_QUERY_STRING_KEY, RawQueryString
-from schemathesis.specs.openapi.checks import _COLLECTION_FORMAT_DELIMITERS
+from ...utils import compose
 
-Generated = dict[str, Any]
-Definition = dict[str, Any]
-DefinitionList = list[Definition]
+Generated = Dict[str, Any]
+Definition = Dict[str, Any]
+DefinitionList = List[Definition]
 MapFunction = Callable[[Generated], Generated]
 
 
@@ -21,18 +16,10 @@ def make_serializer(
     """A maker function to avoid code duplication."""
 
     def _wrapper(definitions: DefinitionList) -> Callable | None:
-        functions = list(func(definitions))
-        if not functions:
-            return None
-
-        def composed(x: Any) -> Any:
-            result = x
-            for func in reversed(functions):
-                if func is not None:
-                    result = func(result)
-            return result
-
-        return composed
+        conversions = list(func(definitions))
+        if conversions:
+            return compose(*[conv for conv in conversions if conv is not None])
+        return None
 
     return _wrapper
 
@@ -42,143 +29,34 @@ def _serialize_openapi3(definitions: DefinitionList) -> Generator[Callable | Non
     for definition in definitions:
         name = definition["name"]
         if "content" in definition:
-            if definition["in"] == "querystring":
-                yield from _serialize_querystring_openapi3(name, definition["content"])
-            else:
-                # https://swagger.io/docs/specification/describing-parameters/#schema-vs-content
-                options = iter(definition["content"].keys())
-                media_type = next(options, None)
-                if media_type == "application/json":
-                    yield to_json(name)
+            # https://swagger.io/docs/specification/describing-parameters/#schema-vs-content
+            options = iter(definition["content"].keys())
+            media_type = next(options, None)
+            if media_type == "application/json":
+                yield to_json(name)
         else:
             # Simple serialization
-            location = definition["in"]
             style = definition.get("style")
             explode = definition.get("explode")
-            schema = definition.get("schema", {})
-            # Track whether the parameter schema was a bare `$ref` at the top: only then is the
-            # OpenAPI-default `extracted_object` shape structurally ambiguous, and recursive
-            # bracketing the safe choice. Inline schemas keep their declared flat-extract semantics.
-            schema_was_top_ref = False
-            if isinstance(schema, dict):
-                schema_was_top_ref = isinstance(schema.get("$ref"), str)
-                bundled = schema.get("x-bundled") if isinstance(schema.get("x-bundled"), dict) else None
-                schema = maybe_resolve_bundled(schema)
-                if bundled is not None and "x-bundled" not in schema:
-                    schema = {**schema, "x-bundled": bundled}
-                type_ = schema.get("type")
-            else:
-                type_ = None
-            # Apply OpenAPI 3.0 defaults for `style` and `explode`. `style`
-            # defaults to `simple` for path/header and `form` for
-            # query/cookie. `explode` defaults to `true` for `form` and
-            # `false` for every other style.
-            if style is None:
-                style = "simple" if location in ("path", "header") else "form"
-            if explode is None:
-                explode = style == "form"
-            if location == "path":
+            type_ = definition.get("schema", {}).get("type")
+            if definition["in"] == "path":
                 yield from _serialize_path_openapi3(name, type_, style, explode)
-            elif location == "query":
-                yield from _serialize_query_openapi3(name, type_, style, explode, schema, schema_was_top_ref)
-            elif location == "header":
+            elif definition["in"] == "query":
+                yield from _serialize_query_openapi3(name, type_, style, explode)
+            elif definition["in"] == "header":
                 yield from _serialize_header_openapi3(name, type_, explode)
-            elif location == "cookie":
+            elif definition["in"] == "cookie":
                 yield from _serialize_cookie_openapi3(name, type_, explode)
 
 
-def _serialize_querystring_openapi3(
-    name: str, content: Mapping[str, Any]
-) -> Generator[Callable[[Generated], Generated], None, None]:
-    options = iter(content.items())
-    media_type, media_type_object = next(options, (None, None))
-    if media_type is None:
-        return
-
-    if media_type == "application/x-www-form-urlencoded":
-        yield _serialize_querystring_urlencoded(name, media_type_object)
-    else:
-        yield _serialize_querystring_other_media_type(name, media_type)
-
-
-def _serialize_querystring_urlencoded(name: str, media_type_object: Any) -> Callable[[Generated], Generated]:
-    serializer = _build_urlencoded_serializer(media_type_object)
-
-    def _map(item: Generated) -> Generated:
-        payload = item.pop(name, None)
-        if payload is None:
-            return item
-        if isinstance(payload, Mapping):
-            serialized = serializer(dict(payload))
-            item.update(serialized)
-        else:
-            _append_raw_query_string(item, str(payload))
-        return item
-
-    return _map
-
-
-def _serialize_querystring_other_media_type(name: str, media_type: str) -> Callable[[Generated], Generated]:
-    def _map(item: Generated) -> Generated:
-        payload = item.pop(name, None)
-        if payload is None:
-            return item
-
-        if media_type == "application/json":
-            serialized = json.dumps(payload, separators=(",", ":"))
-        elif isinstance(payload, bytes):
-            serialized = payload.decode("utf-8", errors="ignore")
-        else:
-            serialized = str(payload)
-
-        _append_raw_query_string(item, quote(serialized, safe=""))
-        return item
-
-    return _map
-
-
-def _build_urlencoded_serializer(media_type_object: Any) -> Callable[[Generated], Generated]:
-    schema = media_type_object.get("schema", {}) if isinstance(media_type_object, Mapping) else {}
-    properties = schema.get("properties", {}) if isinstance(schema, Mapping) else {}
-    encoding = media_type_object.get("encoding", {}) if isinstance(media_type_object, Mapping) else {}
-    definitions = []
-    if isinstance(properties, Mapping):
-        for property_name, property_schema in properties.items():
-            definition: dict[str, Any] = {"name": property_name, "in": "query", "schema": property_schema}
-            property_encoding = encoding.get(property_name) if isinstance(encoding, Mapping) else None
-            if isinstance(property_encoding, Mapping):
-                style = property_encoding.get("style", "form")
-                definition["style"] = style
-                definition["explode"] = property_encoding.get("explode", style == "form")
-            else:
-                definition["style"] = "form"
-                definition["explode"] = True
-            definitions.append(definition)
-    serializer = serialize_openapi3_parameters(definitions)
-    return serializer or (lambda x: x)
-
-
-def _append_raw_query_string(item: Generated, value: Any) -> None:
-    if value is None:
-        return
-    chunk = str(value).lstrip("?")
-    if not chunk:
-        return
-    current = item.get(RAW_QUERY_STRING_KEY)
-    if isinstance(current, RawQueryString):
-        item[RAW_QUERY_STRING_KEY] = RawQueryString(f"{current}&{chunk}")
-    else:
-        item[RAW_QUERY_STRING_KEY] = RawQueryString(chunk)
-
-
 def _serialize_path_openapi3(
-    name: str, type_: str | None, style: str | None, explode: bool | None
+    name: str, type_: str, style: str | None, explode: bool | None
 ) -> Generator[Callable | None, None, None]:
     if style == "simple":
         if type_ == "object":
             if explode is False:
                 yield comma_delimited_object(name)
-            if explode:
+            if explode is True:
                 yield delimited_object(name)
         if type_ == "array":
             yield delimited(name, delimiter=",")
@@ -199,32 +77,16 @@ def _serialize_path_openapi3(
 
 
 def _serialize_query_openapi3(
-    name: str,
-    type_: str | None,
-    style: str | None,
-    explode: bool | None,
-    schema: dict[str, Any] | None = None,
-    schema_was_top_ref: bool = False,
+    name: str, type_: str, style: str | None, explode: bool | None
 ) -> Generator[Callable | None, None, None]:
     if type_ == "object":
-        # OpenAPI has no spec-defined style for objects with nested-object properties.
-        # Only emit recursive bracket notation when the parameter schema was a bare top-level `$ref`
-        # (matches Spring `@ModelAttribute` and similar consumers). Inline schemas keep their
-        # declared flat-extract semantics so we don't regress documented `extracted_object` behaviour.
-        is_nested = schema_was_top_ref and _schema_has_nested_object_properties(schema)
         if style == "deepObject":
-            if is_nested:
-                yield nested_object(name)
-            else:
-                yield deep_object(name)
+            yield deep_object(name)
         if style is None or style == "form":
             if explode is False:
                 yield comma_delimited_object(name)
-            if explode:
-                if is_nested:
-                    yield nested_object(name)
-                else:
-                    yield extracted_object(name)
+            if explode is True:
+                yield extracted_object(name)
     elif type_ == "array" and explode is False:
         if style == "pipeDelimited":
             yield delimited(name, delimiter="|")
@@ -234,35 +96,7 @@ def _serialize_query_openapi3(
             yield delimited(name, delimiter=",")
 
 
-def _schema_has_nested_object_properties(schema: dict[str, Any] | None) -> bool:
-    """Return True when at least one property in `schema` resolves to a nested object."""
-    if not isinstance(schema, dict):
-        return False
-    properties = schema.get("properties")
-    if not isinstance(properties, Mapping):
-        return False
-    bundled = schema.get("x-bundled")
-    for property_schema in properties.values():
-        if not isinstance(property_schema, dict):
-            continue
-        # Splice the parent's bundle map onto the property so nested `$ref`s resolve.
-        candidate = property_schema
-        if isinstance(bundled, dict) and "x-bundled" not in candidate and "$ref" in candidate:
-            candidate = {**candidate, "x-bundled": bundled}
-        resolved = maybe_resolve_bundled(candidate)
-        property_type = resolved.get("type") if isinstance(resolved, dict) else None
-        if property_type == "object":
-            return True
-        if isinstance(property_type, list) and "object" in property_type:
-            return True
-        if isinstance(resolved, dict) and "properties" in resolved:
-            return True
-    return False
-
-
-def _serialize_header_openapi3(
-    name: str, type_: str | None, explode: bool | None
-) -> Generator[Callable | None, None, None]:
+def _serialize_header_openapi3(name: str, type_: str, explode: bool | None) -> Generator[Callable | None, None, None]:
     # Headers should be coerced to a string so we can check it for validity later
     yield to_string(name)
     # Header parameters always use the "simple" style, that is, comma-separated values
@@ -271,13 +105,11 @@ def _serialize_header_openapi3(
     if type_ == "object":
         if explode is False:
             yield comma_delimited_object(name)
-        if explode:
+        if explode is True:
             yield delimited_object(name)
 
 
-def _serialize_cookie_openapi3(
-    name: str, type_: str | None, explode: bool | None
-) -> Generator[Callable | None, None, None]:
+def _serialize_cookie_openapi3(name: str, type_: str, explode: bool | None) -> Generator[Callable | None, None, None]:
     # Cookies should be coerced to a string so we can check it for validity later
     yield to_string(name)
     # Cookie parameters always use the "form" style
@@ -304,16 +136,14 @@ def _serialize_swagger2(definitions: DefinitionList) -> Generator[Callable | Non
             # Headers should be coerced to a string so we can check it for validity later
             yield to_string(name)
         if type_ in ("array", "object"):
-            outer = _COLLECTION_FORMAT_DELIMITERS.get(collection_format)
-            if outer is None:
-                continue
-            items = definition.get("items")
-            if isinstance(items, dict) and items.get("type") == "array":
-                inner_format = items.get("collectionFormat", "csv")
-                inner = _COLLECTION_FORMAT_DELIMITERS.get(inner_format, ",")
-                yield delimited_nested(name, outer=outer, inner=inner)
-            else:
-                yield delimited(name, delimiter=outer)
+            if collection_format == "csv":
+                yield delimited(name, delimiter=",")
+            if collection_format == "ssv":
+                yield delimited(name, delimiter=" ")
+            if collection_format == "tsv":
+                yield delimited(name, delimiter="\t")
+            if collection_format == "pipes":
+                yield delimited(name, delimiter="|")
 
 
 serialize_openapi3_parameters = make_serializer(_serialize_openapi3)
@@ -336,17 +166,17 @@ def make_delimited(data: dict[str, Any] | None, delimiter: str = ",") -> str:
     return delimiter.join(f"{key}={value}" for key, value in force_dict(data or {}).items())
 
 
-def force_iterable(value: object) -> list | tuple:
+def force_iterable(value: Any) -> list | tuple:
     """Converts the value to a list or a tuple.
 
     Only relevant for negative test scenarios where the original types might be changed.
     """
-    if isinstance(value, tuple | list):
+    if isinstance(value, (tuple, list)):
         return value
     return [value]
 
 
-def force_dict(value: object) -> dict:
+def force_dict(value: Any) -> dict:
     """Converts the value to a dictionary.
 
     Only relevant for negative test scenarios where the original types might be changed.
@@ -364,14 +194,7 @@ def to_json(item: Generated, name: str) -> None:
 
 @conversion
 def delimited(item: Generated, name: str, delimiter: str) -> None:
-    item[name] = delimiter.join(map(str, force_iterable(item[name] if item[name] is not None else ())))
-
-
-@conversion
-def delimited_nested(item: Generated, name: str, *, outer: str, inner: str) -> None:
-    raw = item[name] if item[name] is not None else ()
-    encoded = (inner.join(map(str, force_iterable(elem))) for elem in force_iterable(raw))
-    item[name] = outer.join(encoded)
+    item[name] = delimiter.join(map(str, force_iterable(item[name] or ())))
 
 
 @conversion
@@ -405,41 +228,6 @@ def extracted_object(item: Generated, name: str) -> None:
         item.update(generated)
     else:
         item[name] = ""
-
-
-@conversion
-def nested_object(item: Generated, name: str) -> None:
-    """Serialize a nested object with recursive bracket notation.
-
-    {"pagination": {"pageNumber": 1}} => request[pagination][pageNumber]=1
-    """
-    generated = item.pop(name)
-    if not generated:
-        item[name] = ""
-        return
-    if not isinstance(generated, dict):
-        item[name] = generated
-        return
-    flat: dict[str, Any] = {}
-    _flatten_nested(generated, name, flat)
-    item.update(flat)
-
-
-def _flatten_nested(value: Any, prefix: str, out: dict[str, Any]) -> None:
-    if isinstance(value, dict):
-        if not value:
-            out[prefix] = ""
-            return
-        for key, child in value.items():
-            _flatten_nested(child, f"{prefix}[{key}]", out)
-    elif isinstance(value, (list, tuple)):
-        if not value:
-            out[prefix] = ""
-            return
-        for index, child in enumerate(value):
-            _flatten_nested(child, f"{prefix}[{index}]", out)
-    else:
-        out[prefix] = value
 
 
 @conversion

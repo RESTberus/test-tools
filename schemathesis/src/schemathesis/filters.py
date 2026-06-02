@@ -1,22 +1,16 @@
 """Filtering system that allows users to filter API operations based on certain criteria."""
 
 from __future__ import annotations
-
-import json
 import re
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Callable, List, Union, Protocol
 
-from schemathesis.core.errors import IncorrectUsage
-from schemathesis.core.transforms import resolve_pointer
+from .exceptions import UsageError
 
 if TYPE_CHECKING:
-    from typing_extensions import Self
-
-    from schemathesis.schemas import APIOperation
+    from .models import APIOperation
 
 
 class HasAPIOperation(Protocol):
@@ -24,8 +18,8 @@ class HasAPIOperation(Protocol):
 
 
 MatcherFunc = Callable[[HasAPIOperation], bool]
-FilterValue = str | list[str]
-RegexValue = str | re.Pattern
+FilterValue = Union[str, List[str]]
+RegexValue = Union[str, re.Pattern]
 ERROR_EXPECTED_AND_REGEX = "Passing expected value and regex simultaneously is not allowed"
 ERROR_EMPTY_FILTER = "Filter can not be empty"
 ERROR_FILTER_EXISTS = "Filter already exists"
@@ -56,21 +50,16 @@ class Matcher:
             func = partial(by_value_list, attribute=attribute, expected=expected)
         else:
             func = partial(by_value, attribute=attribute, expected=expected)
-        label = f"{attribute}={expected!r}"
+        label = f"{attribute}={repr(expected)}"
         return cls(func, label=label, _hash=hash(label))
 
     @classmethod
     def for_regex(cls, attribute: str, regex: RegexValue) -> Matcher:
         """Matcher that checks whether the specified attribute has the provided regex."""
         if isinstance(regex, str):
-            flags: re.RegexFlag | int
-            if attribute == "method":
-                flags = re.IGNORECASE
-            else:
-                flags = 0
-            regex = re.compile(regex, flags=flags)
+            regex = re.compile(regex)
         func = partial(by_regex, attribute=attribute, regex=regex)
-        label = f"{attribute}_regex={regex!r}"
+        label = f"{attribute}_regex={repr(regex)}"
         return cls(func, label=label, _hash=hash(label))
 
     def match(self, ctx: HasAPIOperation) -> bool:
@@ -81,8 +70,6 @@ class Matcher:
 def get_operation_attribute(operation: APIOperation, attribute: str) -> str | list[str] | None:
     if attribute == "tag":
         return operation.tags
-    if attribute == "operation_id":
-        return operation.definition.raw.get("operationId")
     # Just uppercase `method`
     value = getattr(operation, attribute)
     if attribute == "method":
@@ -113,11 +100,11 @@ def by_regex(ctx: HasAPIOperation, attribute: str, regex: re.Pattern) -> bool:
     if value is None:
         return False
     if isinstance(value, list):
-        return any(bool(regex.search(entry)) for entry in value)
-    return bool(regex.search(value))
+        return any(bool(regex.match(entry)) for entry in value)
+    return bool(regex.match(value))
 
 
-@dataclass(repr=False, frozen=True, slots=True)
+@dataclass(repr=False, frozen=True)
 class Filter:
     """Match API operations against a list of matchers."""
 
@@ -135,22 +122,16 @@ class Filter:
         return all(matcher.match(ctx) for matcher in self.matchers)
 
 
-@dataclass(slots=True)
+@dataclass
 class FilterSet:
     """Combines multiple filters to apply inclusion and exclusion rules on API operations."""
 
-    _includes: set[Filter]
-    _excludes: set[Filter]
+    _includes: set[Filter] = field(default_factory=set)
+    _excludes: set[Filter] = field(default_factory=set)
 
-    def __init__(self, _includes: set[Filter] | None = None, _excludes: set[Filter] | None = None) -> None:
-        self._includes = _includes or set()
-        self._excludes = _excludes or set()
-
-    def clone(self) -> Self:
-        return self.__class__(_includes=self._includes.copy(), _excludes=self._excludes.copy())
-
-    def applies_to(self, operation: APIOperation) -> bool:
-        return self.match(SimpleNamespace(operation=operation))
+    def apply_to(self, operations: list[APIOperation]) -> list[APIOperation]:
+        """Get a filtered list of the given operations that match the filters."""
+        return [operation for operation in operations if self.match(SimpleNamespace(operation=operation))]
 
     def match(self, ctx: HasAPIOperation) -> bool:
         """Determines whether the given operation should be included based on the defined filters.
@@ -174,10 +155,6 @@ class FilterSet:
         """Whether the filter set does not contain any filters."""
         return not self._includes and not self._excludes
 
-    def clear(self) -> None:
-        self._includes.clear()
-        self._excludes.clear()
-
     def include(
         self,
         func: MatcherFunc | None = None,
@@ -190,8 +167,6 @@ class FilterSet:
         path_regex: RegexValue | None = None,
         tag: FilterValue | None = None,
         tag_regex: RegexValue | None = None,
-        operation_id: FilterValue | None = None,
-        operation_id_regex: RegexValue | None = None,
     ) -> None:
         """Add a new INCLUDE filter."""
         self._add_filter(
@@ -205,8 +180,6 @@ class FilterSet:
             path_regex=path_regex,
             tag=tag,
             tag_regex=tag_regex,
-            operation_id=operation_id,
-            operation_id_regex=operation_id_regex,
         )
 
     def exclude(
@@ -221,8 +194,6 @@ class FilterSet:
         path_regex: RegexValue | None = None,
         tag: FilterValue | None = None,
         tag_regex: RegexValue | None = None,
-        operation_id: FilterValue | None = None,
-        operation_id_regex: RegexValue | None = None,
     ) -> None:
         """Add a new EXCLUDE filter."""
         self._add_filter(
@@ -236,8 +207,6 @@ class FilterSet:
             path_regex=path_regex,
             tag=tag,
             tag_regex=tag_regex,
-            operation_id=operation_id,
-            operation_id_regex=operation_id_regex,
         )
 
     def _add_filter(
@@ -253,44 +222,33 @@ class FilterSet:
         path_regex: RegexValue | None = None,
         tag: FilterValue | None = None,
         tag_regex: RegexValue | None = None,
-        operation_id: FilterValue | None = None,
-        operation_id_regex: RegexValue | None = None,
     ) -> None:
         matchers = []
         if func is not None:
             matchers.append(Matcher.for_function(func))
         for attribute, expected, regex in (
-            ("label", name, name_regex),
+            ("verbose_name", name, name_regex),
             ("method", method, method_regex),
             ("path", path, path_regex),
             ("tag", tag, tag_regex),
-            ("operation_id", operation_id, operation_id_regex),
         ):
             if expected is not None and regex is not None:
                 # To match anything the regex should match the expected value, hence passing them together is useless
-                raise IncorrectUsage(ERROR_EXPECTED_AND_REGEX)
+                raise UsageError(ERROR_EXPECTED_AND_REGEX)
             if expected is not None:
-                if attribute == "method":
-                    expected = _normalize_method(expected)
                 matchers.append(Matcher.for_value(attribute, expected))
             if regex is not None:
                 matchers.append(Matcher.for_regex(attribute, regex))
 
         if not matchers:
-            raise IncorrectUsage(ERROR_EMPTY_FILTER)
+            raise UsageError(ERROR_EMPTY_FILTER)
         filter_ = Filter(matchers=tuple(matchers))
         if filter_ in self._includes or filter_ in self._excludes:
-            raise IncorrectUsage(ERROR_FILTER_EXISTS)
+            raise UsageError(ERROR_FILTER_EXISTS)
         if include:
             self._includes.add(filter_)
         else:
             self._excludes.add(filter_)
-
-
-def _normalize_method(value: FilterValue) -> FilterValue:
-    if isinstance(value, list):
-        return [item.upper() for item in value]
-    return value.upper()
 
 
 def attach_filter_chain(
@@ -317,12 +275,8 @@ def attach_filter_chain(
         name_regex: str | None = None,
         method: FilterValue | None = None,
         method_regex: str | None = None,
-        tag: FilterValue | None = None,
-        tag_regex: RegexValue | None = None,
         path: FilterValue | None = None,
         path_regex: str | None = None,
-        operation_id: FilterValue | None = None,
-        operation_id_regex: RegexValue | None = None,
     ) -> Callable:
         __tracebackhide__ = True
         filter_func(
@@ -331,12 +285,8 @@ def attach_filter_chain(
             name_regex=name_regex,
             method=method,
             method_regex=method_regex,
-            tag=tag,
-            tag_regex=tag_regex,
             path=path,
             path_regex=path_regex,
-            operation_id=operation_id,
-            operation_id_regex=operation_id_regex,
         )
         return target
 
@@ -344,51 +294,3 @@ def attach_filter_chain(
     proxy.__name__ = attribute
 
     setattr(target, attribute, proxy)
-
-
-def is_deprecated(ctx: HasAPIOperation) -> bool:
-    return ctx.operation.definition.raw.get("deprecated") is True
-
-
-def parse_expression(expression: str) -> tuple[str, str, Any]:
-    expression = expression.strip()
-
-    # Find the operator
-    for op in ("==", "!="):
-        try:
-            pointer, value = expression.split(op, 1)
-            break
-        except ValueError:
-            continue
-    else:
-        raise ValueError(f"Invalid expression: {expression}")
-
-    pointer = pointer.strip()
-    value = value.strip()
-    if not pointer or not value:
-        raise ValueError(f"Invalid expression: {expression}")
-    # Parse the JSON value
-    try:
-        return pointer, op, json.loads(value)
-    except json.JSONDecodeError:
-        # If it's not valid JSON, treat it as a string
-        return pointer, op, value
-
-
-def expression_to_filter_function(expression: str) -> Callable[[HasAPIOperation], bool]:
-    pointer, op, value = parse_expression(expression)
-
-    if op == "==":
-
-        def filter_function(ctx: HasAPIOperation) -> bool:
-            definition = ctx.operation.definition.raw
-            resolved = resolve_pointer(definition, pointer)
-            return resolved == value
-    else:
-
-        def filter_function(ctx: HasAPIOperation) -> bool:
-            definition = ctx.operation.definition.raw
-            resolved = resolve_pointer(definition, pointer)
-            return resolved != value
-
-    return filter_function
