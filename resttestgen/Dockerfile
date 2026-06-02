@@ -11,7 +11,7 @@ RUN gradle clean build -x test
 # Stage 2: Runtime (Eclipse Temurin 17 JRE)
 FROM eclipse-temurin:17-jre-jammy AS runtime
 
-ENV JAVA_TOOL_OPTIONS="-XX:+ExitOnOutOfMemoryError -XX:+UseSerialGC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=75.0 -XshowSettings:system"
+ENV JAVA_TOOL_OPTIONS="-XX:+ExitOnOutOfMemoryError -XX:+UseParallelGC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=75.0 -XshowSettings:system"
 
 WORKDIR /tool
 

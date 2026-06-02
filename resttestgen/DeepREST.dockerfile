@@ -26,7 +26,7 @@ RUN uv sync --frozen --no-install-project --no-dev
 # Stage 3: Runtime (Stable Baslines 3 Python + RestTestGen Java)
 FROM ghcr.io/restberus/python:3.14.5-debian-13.5-slim-jre17 AS runtime
 
-ENV JAVA_TOOL_OPTIONS="-XX:+ExitOnOutOfMemoryError -XX:+UseSerialGC -XX:+UseContainerSupport -XX:MaxRAMPercentage=70.0 -XX:InitialRAMPercentage=70.0 -XshowSettings:system"
+ENV JAVA_TOOL_OPTIONS="-XX:+ExitOnOutOfMemoryError -XX:+UseParallelGC -XX:+UseContainerSupport -XX:MaxRAMPercentage=70.0 -XX:InitialRAMPercentage=70.0 -XshowSettings:system"
 
 WORKDIR /tool
 
