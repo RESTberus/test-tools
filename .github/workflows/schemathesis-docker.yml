@@ -1,4 +1,4 @@
-name: Build Schemathesis docker image
+name: Build Schemathesis-V3 docker image
 
 on:
   workflow_dispatch:

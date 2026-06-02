@@ -1,4 +1,4 @@
-name: Build Schemathesis docker image
+name: Build Schemathesis-V4 docker image
 
 on:
   workflow_dispatch:
@@ -59,8 +59,8 @@ jobs:
         env:
           SOURCE_DATE_EPOCH: 0
         with:
-          context: ./schemathesis
-          file: ./schemathesis/Dockerfile
+          context: ./schemathesis-v4
+          file: ./schemathesis-v4/Dockerfile
           push: true
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
           cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}
