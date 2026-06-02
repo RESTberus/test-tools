@@ -1,137 +1,155 @@
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
-
-import loguru
-
-from constant.api import MethodRequestType
-from constant.parameter import ParameterLocation, RequestBodyContent
+import re
+from model.constant import METHOD_CONST
 from model.parameter import Parameter
 
-logger = loguru.logger
+crud_sort_map = {
+    "head": 1,
+    "post": 2,
+    "get": 3,
+    "put": 4,
+    "patch": 5,
+    "delete": 6,
+}
 
 
 class Method:
-    def __init__(self, method_type: str, api_path: str, method_raw_body: dict):
-        self.method_path: str = api_path
-        self.operation_id: str = method_raw_body.get("operationId", None)
-        self.summary: str = method_raw_body.get("summary", None)
-        self.description: str = method_raw_body.get("description", None)
+    def __init__(self, method, path, method_body={}, alternative_method=None):
+        self.method_type = METHOD_CONST[method]
+        self.method_path = path
+        self.method_mapping_path = path
+        self.method_body = method_body
+        self.method_id = uuid.uuid4().__str__()
+        self.method_name = method_body.get("operationId", f'{self.method_type}-{self.method_path}')
+        self.request_parameters = {}
+        self.request_parameter_name = set()
+        self.response_parameter = {}
+        self.response_parameter_name = set()
+        self.request_parameter_body_tuple = {}
+        self.response_parameter_body_tuple = {}
+        self.feed_from_method = set()
+        self.output_to_method = set()
+        self.required_feed_parameter = {}
+        self.dependency_from_traffic = {}
+        self.method_signature = f'{self.method_type}-{self.method_path}'
+        self.crud = crud_sort_map[self.method_type]
+        # this is used for alternative method.py mapping
+        if alternative_method:
+            self.crud = crud_sort_map[alternative_method]
+        self.parse(self.method_body)
 
-        # request and response data type
-        self.consumes: List[str] = method_raw_body.get("consumes", None)
-        self.produces: List[str] = method_raw_body.get("produces", None)
-        self.tags: List[str] = method_raw_body.get("tags", None)
+    def parse(self, body={}):
+        # parse request
+        if body.__contains__("parameters"):
+            req_parameters = body["parameters"]
+            req_parameters = self.parse_param(req_parameters)
+            self.request_parameters = req_parameters
+        # parse response
+        responses = body["responses"]
+        for respon in responses:
+            format_response = self.parse_response(respon, responses[respon])
+        print("Response", self.response_parameter_name)
 
-        # request parameter
-        self.request_parameter: Dict[str, Parameter] = {}
+    def parse_param(self, parameters=[]):
+        res = {}
+        for param in parameters:
+            name = param["name"]
+            res[name] = Parameter(name, param, self.method_path)
+            self.request_parameter_name = set.union(self.request_parameter_name, res[name].parameter_names)
+            for k in res[name].parameter_body_tuple.keys():
+                body_tuple_list = self.request_parameter_body_tuple.get(k, [])
+                body_tuple_list.extend(res[name].parameter_body_tuple[k])
+                self.request_parameter_body_tuple[k] = body_tuple_list
+        print("Request", self.request_parameter_name)
+        return res
 
-        # response parameter
-        self.response_parameter: Dict[str, Parameter] = {}
+    def parse_response(self, status_code, response={}):
+        res = {}
+        # if self.method_signature == 'get-/rest/blockservice/v1/lun-groups/{id}':
+        #     print()
+        parameter = Parameter(str(status_code), response, self.method_path)
+        self.response_parameter[str(status_code)] = parameter
+        self.response_parameter_name = set.union(self.response_parameter_name, parameter.parameter_names)
+        self.response_parameter_name.remove(str(status_code))
+        for k in parameter.parameter_body_tuple.keys():
+            body_tuple_list = self.response_parameter_body_tuple.get(k, [])
+            body_tuple_list.extend(parameter.parameter_body_tuple[k])
+            self.response_parameter_body_tuple[k] = body_tuple_list
+        return res
 
-        self.method_type: MethodRequestType = MethodRequestType(method_type)
-        self.method_raw_body: dict = method_raw_body
+    def get_parameter_property_name(self, param_property_name=""):
+        result, candidate_name = None, None
+        for response in self.response_parameter.values():
+            if not response.parameter_names.__contains__(param_property_name):
+                continue
+            candidate_pool = list(response.attribute_path_dict[param_property_name])
+            # FIXME: SHOULD BE PROPER HANDLED FOR SPANNING PARAMETER IN DIFFERENT SEQUENCES
+            result = response.parameter_id + candidate_pool[0]
+            candidate_name = candidate_pool[0]
+        assert result
+        assert candidate_name
+        return result, candidate_name
 
-        # method id
-        self.method_id: str = f"{uuid.uuid4()}"
+    def _get_nominal_parameters(self, parameters, with_parameter_name=True):
+        res = set()
+        if len(parameters) == 0:
+            print(self.method_signature, 'has no parameter [in get nominal parameters]')
+        for parameter in parameters:
+            for nominal_values in parameter.attribute_path_dict.values():
+                for value in nominal_values:
+                    if with_parameter_name and value != parameter.name:
+                        res.add(f'{parameter.name}.{value}')
+                    else:
+                        res.add(value)
+        return res
 
-    def parse_parameters(self):
-        logger.info(f"parse method {self.signature}")
+    def get_nominal_request_parameter(self):
+        return self._get_nominal_parameters(self.request_parameters.values())
 
-        # parse request parameters
-        if self.method_raw_body.__contains__("parameters"):
-            raw_request_parameters = self.method_raw_body["parameters"]
-            # if no parameters found
-            if raw_request_parameters is None:
-                print("No raw request parameters found.")
-                return
-            for raw_request_parameter in raw_request_parameters:
-                parameter_location: ParameterLocation = ParameterLocation(
-                    raw_request_parameter["in"]
-                )
-                parameter_name: str = (
-                    raw_request_parameter["name"]
-                    if parameter_location != ParameterLocation.BODY
-                    else ""
-                )
-                parameter: Parameter = Parameter(
-                    name=parameter_name,
-                    parameter_location=parameter_location,
-                    parameter_raw_body=raw_request_parameter,
-                )
-                parameter.parse_parameter()
+    def get_request_paramter_by_property_name(self, properties):
+        res = self._get_nominal_name_by_property_name(properties, self.request_parameters.values(), True)
+        assert len(res) > 0
+        return res
 
-                description: str = raw_request_parameter.get("description", None)
-                parameter.description = description
-                parameter.method = self
+    def get_response_paramter_by_property_name(self, properties):
+        res = self._get_nominal_name_by_property_name(properties, self.response_parameter.values())
+        assert len(res) > 0
+        return res
 
-                if ParameterLocation.BODY == parameter_location:
-                    parameter.request_body_content = RequestBodyContent.JSON
+    def get_single_request_parameter_by_property_name(self, prop):
+        res = self._get_nominal_name_by_property_name([prop], self.request_parameters.values())
+        assert len(res) > 0
+        return res
 
-                self.request_parameter[parameter.name] = parameter
-        if self.method_raw_body.__contains__("requestBody"):
-            raw_request_parameters = self.method_raw_body["requestBody"]
-            parameter_location: ParameterLocation = ParameterLocation.BODY
+    def get_single_response_parameter_by_property_name(self, prop):
+        res = self._get_nominal_name_by_property_name([prop], self.response_parameter.values())
+        assert len(res) > 0
+        return res
 
-            for request_body_type in raw_request_parameters["content"]:
-                if (
-                    "json" not in request_body_type
-                    and "octet-stream" not in request_body_type
-                ):
-                    logger.error(
-                        f"request body type {request_body_type} is not supported"
-                    )
+    def get_feed_from_method_response_parameter_by_property_and_method_name(self, method_name, prop):
+        for method in self.feed_from_method:
+            if method.method_signature == method_name:
+                return method.get_single_response_parameter_by_property_name(prop)
+
+    def _get_nominal_name_by_property_name(self, properties, parameters, with_parameter_name=False):
+        res = set()
+        for parameter in parameters:
+            for prop in properties:
+                if not parameter.attribute_path_dict.__contains__(prop):
                     continue
-                parameter_name: str = f"{request_body_type}_body"
-                body_schema = raw_request_parameters["content"][request_body_type][
-                    "schema"
-                ]
-                parameter: Parameter = Parameter(
-                    name=parameter_name,
-                    parameter_location=parameter_location,
-                    parameter_raw_body=body_schema,
-                )
-                required: bool = raw_request_parameters.get("required", False)
-                parameter.required = required
-                parameter.request_body_content = RequestBodyContent.JSON
-                parameter.parse_parameter()
+                nominal_dict = set()
+                for attribute in parameter.attribute_path_dict[prop]:
+                    # to avoid add par1.par1 (should add par1 directly)
+                    if with_parameter_name and attribute != parameter.name:
+                        nominal_dict.add(f'{parameter.name}.{attribute}')
+                    else:
+                        nominal_dict.add(attribute)
 
-                description = body_schema.get("description", None)
-                parameter.description = description
-                parameter.method = self
-                self.request_parameter[parameter.name] = parameter
+                res = res.union(nominal_dict)
+        return res
 
-        # parse response parameters
-        if self.method_raw_body.__contains__("responses"):
-            raw_response_parameters = self.method_raw_body["responses"]
-            for raw_response_parameter in raw_response_parameters:
-                parameter: Parameter = Parameter(
-                    name=raw_response_parameter,
-                    parameter_location=ParameterLocation.RESPONSE,
-                    parameter_raw_body=raw_response_parameters[raw_response_parameter],
-                )
-                parameter.parse_parameter()
-                description: str = raw_response_parameters[raw_response_parameter].get(
-                    "description", None
-                )
-                parameter.description = description
-                parameter.method = self
-                self.response_parameter[parameter.name] = parameter
-
-    @property
-    def signature(self):
-        return f"{self.method_type.value}_{self.operation_id}_{self.method_path}"
-
-    @property
-    def full_description(self):
-        return f"{self.signature}, {self.summary}, {self.description}"
-
-    def __repr__(self):
-        return self.signature
+    def __str__(self):
+        return self.method_signature
 
     def __hash__(self):
-        return hash(self.signature)
-
-    def __eq__(self, other):
-        if isinstance(other, Method):
-            return self.signature == other.signature
-        return False
+        return hash(self.method_signature)

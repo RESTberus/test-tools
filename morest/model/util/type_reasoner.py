@@ -1,38 +1,20 @@
-import loguru
+def reason_type(first_param_body, second_param_body):
+    is_same = True
+    attributes = ["type",  "enum", "format"]
 
-from model.parameter import ParameterAttribute
-
-logger = loguru.logger
-
-
-def reason_type(
-        producer_attribute: ParameterAttribute, consumer_attribute: ParameterAttribute
-):
-    # type is not the same
-    if producer_attribute.parameter_type != consumer_attribute.parameter_type:
-        return False
-
-    # check enum
-    if producer_attribute.schema_info.enum != consumer_attribute.schema_info.enum:
-        return False
-
-    # check format
-    if producer_attribute.schema_info.format != consumer_attribute.schema_info.format:
-        return False
-
-    # check pattern
-    if producer_attribute.schema_info.pattern != consumer_attribute.schema_info.pattern:
-        return False
-
-    # check maximum
-    if producer_attribute.schema_info.maximum != consumer_attribute.schema_info.maximum:
-        return False
-
-    # check minimum
-    if producer_attribute.schema_info.minimum != consumer_attribute.schema_info.minimum:
-        return False
-    logger.info(
-        f"producer {producer_attribute.attribute_path} == consumer {consumer_attribute.attribute_path}"
-    )
-
-    return True
+    # attributes = ["type", "minLength", "maxLength", "maximum", "minimum", "enum", "pattern", "format"]
+    # check for type
+    for attri in attributes:
+        # pass for not having
+        if not (attri in first_param_body) and not (attri in second_param_body):
+            continue
+        # check for consistent property
+        if (attri in first_param_body and not (attri in second_param_body)) or (
+                not (attri in first_param_body) and attri in second_param_body):
+            is_same = False
+            break
+        # check for =
+        if first_param_body[attri] != second_param_body[attri]:
+            is_same = False
+            break
+    return is_same

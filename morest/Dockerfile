@@ -1,42 +1,41 @@
-FROM python:3.11.15-alpine3.23 AS builder
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Original Morest ("api-fuzzer-hw") algorithm, modernized to Python 3.11 and deterministically
+# seeded, packaged for restberus. Debian slim (not alpine) so the deps resolve to manylinux
+# wheels on both linux/amd64 and linux/arm64. Dependencies are managed with uv + uv.lock.
+FROM python:3.11-slim AS builder
 
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_DEFAULT_TIMEOUT=100 \
-    UV_LINK_MODE=copy \
-    UV_PROJECT_ENVIRONMENT=/app/.venv
+COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /uvx /bin/
 
-# Change workdir
-WORKDIR /app
+ENV UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/tool/.venv \
+    UV_PYTHON_DOWNLOADS=never \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install dependencies and compile into bytecode
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev --compile-bytecode
+WORKDIR /tool
 
+# Install the locked dependencies only (package=false -> no project build), so this layer is
+# cached unless the lock changes. pydblite's legacy sdist is built here with setuptools<73
+# (pinned via [tool.uv.extra-build-dependencies] in pyproject.toml).
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --frozen --no-dev
 
-FROM python:3.11.15-alpine3.23 AS runner
+# Runtime stage
+FROM python:3.11-slim AS runtime
 
-# Set workdir
-WORKDIR /app
-
-# Copy the virtual env from the builder
-COPY --from=builder /app/.venv /app/.venv
-
-# Copy the project files
-ADD . /app
-
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/app/.venv/bin:$PATH"
+    VIRTUAL_ENV=/tool/.venv \
+    PATH="/tool/.venv/bin:$PATH"
 
+WORKDIR /tool
+
+COPY --from=builder /tool/.venv /tool/.venv
+COPY . /tool/
+
+# restberus overrides the container command with `/bin/sh /app/run.sh` (the wrapper); these
+# defaults only apply when running the image standalone.
 ENV TARGET_URL=http://localhost:8000 \
     TIME_BUDGET_SECONDS=600 \
-    PYTHON_GIL=0 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    YAML_PATH=/app/api_spec.yaml
+    RANDOM_SEED=42 \
+    SPEC_PATH=/app/spec.json
 
-CMD ["python", "main.py", "--target-url", "${TARGET_URL}", "--time-budget-seconds", "${TIME_BUDGET_SECONDS}", "--yaml-path", "${YAML_PATH}"]
+CMD ["python3", "entrypoint.py"]

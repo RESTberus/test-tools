@@ -1,359 +1,285 @@
-import dataclasses
-from typing import Any, Dict, List
-
-import loguru
-
-from constant.parameter import (ParameterLocation, ParameterType,
-                                RequestBodyContent)
-
-logger = loguru.logger
-ARRAY_NOTATION = "[0]"
+import re
+import uuid
+from nltk.stem.snowball import SnowballStemmer
 
 
-@dataclasses.dataclass
-class ParameterAttributeSchemaInfo:
-    raw_schema: dict = None
-    enum: List[str] = None
-    format: str = None
-    pattern: str = None
-    example: Any = None
-    maximum: Any = None
-    minimum: Any = None
-    maxLength: int = None
-    minLength: int = None
-
-    @property
-    def has_enum(self):
-        return self.enum is not None and len(self.enum) > 0
-
-    @property
-    def has_example(self):
-        return self.example is not None
-
-    @property
-    def has_format(self):
-        return self.format is not None
-
-    @property
-    def has_maximum(self):
-        return self.maximum is not None
-
-    @property
-    def has_minimum(self):
-        return self.minimum is not None
-
-    @property
-    def has_pattern(self):
-        return self.pattern is not None
-
-    @property
-    def has_max_length(self):
-        return self.maxLength is not None
-
-    @property
-    def has_min_length(self):
-        return self.minLength is not None
+class TargetStatus:
+    EMPTY = 'EMPTY'
+    NON_EMPTY = 'NON_EMPTY'
+    TRUE = "TRUE"
+    FALSE = "FALSE"
+    MIN = "MIN"
+    MAX = "MAX"
+    MIDDLE = "MIDDLE"
+    EXAMPLE = 'EXAMPLE'
 
 
-class ParameterAttribute:
-    schema_info: ParameterAttributeSchemaInfo = None
-    parameter: "Parameter" = None
-    parameter_value_list: List[Any] = None
-
-    def __init__(
-            self,
-            attribute_name: str,
-            attribute_path: str,
-            parameter: "Parameter",
-            parameter_attribute_raw_body: dict,
-    ):
-        # root parameter
-        self.parameter: Parameter = parameter
-
-        # parameter attribute structure
-        self.parent_parameter_attribute: ParameterAttribute = None
-        self.sibling_parameter_attribute_list: List[ParameterAttribute] = []
-        self.child_parameter_attribute_list: List[ParameterAttribute] = []
-
-        # parameter attribute data
-        self.parameter_attribute_raw_body: dict = parameter_attribute_raw_body
-        self.attribute_path: str = attribute_path
-        self.attribute_name: str = attribute_name
-        self.description: str = parameter_attribute_raw_body.get("description", None)
-        self.required: bool = False
-        self.global_required: bool = False
-
-        # if parameter is None, this is a runtime parameter
-        self.parameter_value_list = []
-
-        if self.parameter is None:
-            return
-
-        # check if the parameter attribute is a schema
-        if (
-                parameter_attribute_raw_body.__contains__("schema")
-                and parameter_attribute_raw_body["schema"].__contains__("properties")
-        ) or parameter_attribute_raw_body.__contains__("properties"):
-            self.parameter_type: ParameterType = ParameterType.OBJECT
-        else:
-            if parameter_attribute_raw_body.__contains__("schema"):
-                self.parameter_type: ParameterType = ParameterType(
-                    parameter_attribute_raw_body["schema"]["type"]
-                )
-            elif parameter_attribute_raw_body.__contains__("anyOf"):
-                # temp support for anyOf
-                self.parameter_type: ParameterType = ParameterType(
-                    parameter_attribute_raw_body["anyOf"][0]["type"]
-                )
-            elif "type" not in parameter_attribute_raw_body:
-                # temp support for typeless
-                self.parameter_type: ParameterType = ParameterType.STRING
-            else:
-                self.parameter_type: ParameterType = ParameterType(
-                    parameter_attribute_raw_body["type"]
-                )
-
-        # update schema info
-        self.schema_info = ParameterAttributeSchemaInfo()
-        if parameter_attribute_raw_body.__contains__("schema"):
-            parameter_attribute_raw_body = parameter_attribute_raw_body["schema"]
-        self.schema_info.raw_schema = parameter_attribute_raw_body
-        self.schema_info.enum = parameter_attribute_raw_body.get("enum", None)
-        self.schema_info.example = parameter_attribute_raw_body.get("example", None)
-        self.schema_info.format = parameter_attribute_raw_body.get("format", None)
-        self.schema_info.maximum = parameter_attribute_raw_body.get("maximum", None)
-        self.schema_info.minimum = parameter_attribute_raw_body.get("minimum", None)
-        self.schema_info.pattern = parameter_attribute_raw_body.get("pattern", None)
-        self.schema_info.maxLength = parameter_attribute_raw_body.get("maxLength", None)
-        self.schema_info.minLength = parameter_attribute_raw_body.get("minLength", None)
-
-    def set_parent_parameter_attribute(self, parent_parameter_attribute):
-        self.parent_parameter_attribute = parent_parameter_attribute
-
-    def add_sibling_parameter_attribute(self, sibling_parameter_attribute):
-        self.sibling_parameter_attribute_list.append(sibling_parameter_attribute)
-
-    def add_child_parameter_attribute(self, child_parameter_attribute):
-        self.child_parameter_attribute_list.append(child_parameter_attribute)
-
-    @property
-    def signature(self):
-        return f"type:({self.parameter_type.value})_path({self.attribute_path})"
-
-    def __repr__(self):
-        if self.parameter is not None:
-            return f"{self.parameter.signature}_{self.signature}"
-        return f"{self.signature}"
-
-    def __eq__(self, other):
-        return self.attribute_path == other.attribute_path
-
-    def __hash__(self):
-        return hash(self.attribute_path)
-
-    def add_parameter_value(self, parameter_value):
-        self.parameter_value_list.append(parameter_value)
-
-    def get_parameter_value(self):
-        for value in self.parameter_value_list:
-            yield value
-
-
-# remember to support requestBody
+class TargetType:
+    ENUM = 'ENUM'
+    NUM = 'NUM'
+    ARRAY = "ARRAY"
+    BOOL = "BOOL"
+    STRING = "STRING"
+    EXAMPLE = 'EXAMPLE'
 
 
 class Parameter:
-    def __init__(
-            self, name: str, parameter_location: ParameterLocation, parameter_raw_body: dict
-    ):
-        self.parameter_raw_body: dict = parameter_raw_body
-        self.name: str = name
-        self.description: str = None
-        self.required: bool = parameter_raw_body.get("required", False)
-        # required for path
-        if parameter_location == ParameterLocation.PATH:
-            self.required = True
-        self.attribute_dict: Dict[str, ParameterAttribute] = {}
-        self.parameter: ParameterAttribute = None
-        self.location: ParameterLocation = parameter_location
-        self.request_body_content: RequestBodyContent = None
-        self.method: "Method" = None
+    def __init__(self, name, body={}, method_path=""):
+        self.name = name
+        self.raw_body = body
+        self.has_schema = False
+        self.schema = None
+        self.method_path = method_path
+        self.attribute_path_dict = {}
+        self.parameter_id = "h" + uuid.uuid4().__str__()
+        self.parameter_names = set()
+        self.parameter_names.add(name)
+        self.parameter_body_tuple = {}
+        self.parameter_body_tuple[name] = [(name, body)]
+        # record_all_attribute
+        self.attributes = set([name])
+        # target consists of (type, path, value)
+        self.cover_targets = set()
+        # if name == 'delete_lun_groups_request':
+        #     print()
+        self.attribute_path_dict[name] = set([name])
+        self.parse(body)
+        # extend parameter name by path resource
+        if self.attribute_should_extend(name):
+            self.parameter_names.remove(name)
+            self.parameter_body_tuple[name].remove((name, body))
+            canonical_name = self.get_canonical_name(name)
+            tokens = self.tokenize_method_path(method_path)
+            for token in tokens:
+                attribute_path = token + '_' + canonical_name
+                self.attribute_path_dict[attribute_path] = set([name])
+                self.parameter_names.add(attribute_path)
+                self.parameter_body_tuple[attribute_path] = [(attribute_path, body)]
 
-    def parse_parameter(self):
-        parameter_body = self.parameter_raw_body
-        if self.location == ParameterLocation.BODY:
-            if self.request_body_content:
-                self.recursive_parse_parameter(
-                    parameter_name="",
-                    parameter_body=parameter_body,
-                    parent_path="",
-                    parent_attribute=None,
-                    parent_required=self.required,
-                )
+    def parse(self, body={}):
+        if body.__contains__("schema"):
+            self.has_schema = True
+            self.parse_schema(body["schema"])
+        else:
+            if body.__contains__("name"):
+                name = body["name"]
+                self.parameter_names.add(name)
+                body_tuple_list = self.parameter_body_tuple.get(name, [])
+                body_tuple_list.append((name, body))
+                self.parameter_body_tuple[name] = body_tuple_list
+                self.parse_schema(body)
+            elif body.__contains__("properties"):
+                self.has_schema = True
+                self.schema = body
+                self.parse_schema(self.schema["properties"])
             else:
-                self.recursive_parse_parameter(
-                    parameter_name="",
-                    parameter_body=parameter_body["schema"],
-                    parent_path="",
-                    parent_attribute=None,
-                    parent_required=parameter_body.get("required", False),
-                )
-        elif self.location == ParameterLocation.RESPONSE:
-            if parameter_body.__contains__("schema"):
-                self.recursive_parse_parameter(
-                    parameter_name="",
-                    parameter_body=parameter_body["schema"],
-                    parent_path="",
-                    parent_attribute=None,
-                    parent_required=parameter_body.get("required", False),
-                )
+                print("Body without name")
 
-            elif parameter_body.__contains__("content"):
-                content: dict = parameter_body["content"]
-                for content_type in content:
-                    if "json" not in content_type and "*/*" not in content_type:
-                        logger.error(f"not support content type: {content_type}")
+    def parse_schema(self, schema={}):
+        if isinstance(schema, dict):
+            if schema.__contains__("properties") or schema.__contains__("allOf") or schema.__contains__('name'):
+                queue = [("", schema)]
+                # handle allOf case
+                if schema.__contains__("allOf"):
+                    for item in schema["allOf"]:
+                        queue.append(("", item))
+                while len(queue) > 0:
+                    elem = queue.pop()
+                    prefix = elem[0]
+
+                    elem = elem[1]
+                    if elem.__contains__("properties"):
+                        properties = elem["properties"]
+                        # required_properties = []
+                        # if elem.__contains__('required'):
+                        #     required_properties = elem['required']
+                        for name in properties.keys():
+                            # if name in required_properties:
+                            #     properties[name]['required'] = True
+                            # check array type
+                            is_array = False
+                            if properties[name].__contains__("type") and properties[name]["type"] == "array":
+                                is_array = True
+                            # check prefix
+                            if len(prefix) == 0:
+                                child_prefix = prefix
+                            else:
+                                child_prefix = prefix
+                                child_prefix += "."
+                            self.parameter_names.add(name)
+                            # add into attribute set
+                            attribute_path = child_prefix + name
+                            attribute_set = self.attribute_path_dict.get(name, set())
+                            attribute_set.add(attribute_path)
+                            body_tuple_list = self.parameter_body_tuple.get(name, [])
+                            body_tuple_list.append((attribute_path, properties[name]))
+                            self.parameter_body_tuple[name] = body_tuple_list
+                            self.attributes.add(self.name + "." + attribute_path)
+                            self.attribute_path_dict[name] = attribute_set
+                            # if attribute_path == 'id':
+                            #     print()
+                            # extend property name by attribute path
+                            if self.attribute_should_extend(name):
+                                self.parameter_names.remove(name)
+                                self.parameter_body_tuple[name].remove((attribute_path, properties[name]))
+                                is_first_level_attribute = False
+                                if len(prefix) != 0:
+                                    prefix_tokens = [self.tokenize_attribute_path(child_prefix)]
+                                else:
+                                    prefix_tokens = self.tokenize_method_path(self.method_path)
+                                    is_first_level_attribute = True
+
+                                for prefix_token in prefix_tokens:
+                                    if is_first_level_attribute:
+                                        path = prefix_token + '_' + name
+                                    else:
+                                        path = prefix_token + '_' + name
+                                    attribute_path_set = self.attribute_path_dict.get(path, set())
+                                    attribute_path_set.add(attribute_path)
+                                    self.attribute_path_dict[path] = attribute_path_set
+                                    self.parameter_names.add(path)
+                                    body_tuple_list = self.parameter_body_tuple.get(path, [])
+                                    body_tuple_list.append((path, properties[name]))
+                                    self.parameter_body_tuple[path] = body_tuple_list
+
+                            # traverse inner properties
+                            if isinstance(properties[name], dict):
+                                if is_array:
+                                    queue.append((child_prefix + name + "[0]", properties[name]))
+                                else:
+                                    queue.append((child_prefix + name, properties[name]))
+
+                    if elem.__contains__("allOf"):
+                        for e in elem["allOf"]:
+                            queue.append((prefix, e))
+
+                    if elem.__contains__("items"):
+                        if not prefix.endswith('[0]'):
+                            prefix += '[0]'
+                        self.parameter_body_tuple[prefix] = [
+                            (prefix, elem["items"])]
+                        self.attribute_path_dict[prefix] = [prefix]
+                        self.parameter_names.add(prefix)
+                        queue.append((prefix, elem["items"]))
+                    targets = self.cover_targets
+                    # try:
+                    #     int(self.name + 1)
+                    #     full_path = prefix
+                    # except Exception as ex:
+                    #     if len(prefix) == 0:
+                    #         full_path = self.name
+                    #     else:
+                    #         full_path = self.name + "." + prefix
+                    #         self.attributes.add(full_path)
+                    if len(prefix) == 0:
                         continue
-                    self.recursive_parse_parameter(
-                        parameter_name="",
-                        parameter_body=content[content_type]["schema"],
-                        parent_path="",
-                        parent_attribute=None,
-                        parent_required=parameter_body.get("required", False),
-                    )
+                    full_path = prefix
+                    # handle enum targets
+                    if elem.__contains__('enum'):
+                        for enum in elem["enum"]:
+                            tar = (full_path, TargetType.ENUM, enum)
+                            targets.add(tar)
+                    elif elem.__contains__("type"):
+                        element_type = elem['type']
+                        # handle array type
+                        if element_type == 'array':
+                            targets.add((full_path.replace('[0]', ''), TargetType.ARRAY, TargetStatus.EMPTY))
+                            targets.add((full_path.replace('[0]', ''), TargetType.ARRAY, TargetStatus.NON_EMPTY))
+                        # handle string type
+                        elif element_type == 'string':
+                            if elem.__contains__('example'):
+                                tar = (full_path, TargetType.EXAMPLE, TargetStatus.EXAMPLE)
+                                targets.add(tar)
+                            # if elem.__contains__("minLength"):
+                            #     targets.add((full_path, TargetType.STRING, TargetStatus.MIN))
+                            # if elem.__contains__("maxLength"):
+                            #     targets.add((full_path, TargetType.STRING, TargetStatus.MAX))
+                            # if elem.__contains__("minLength") and elem.__contains__("maxLength"):
+                            #     targets.add((full_path, TargetType.STRING, TargetStatus.MIDDLE))
+                        elif element_type == 'boolean':
+                            targets.add((full_path, TargetType.BOOL, TargetStatus.TRUE))
+                            targets.add((full_path, TargetType.BOOL, TargetStatus.FALSE))
+                        elif element_type == 'integer':
+                            if elem.__contains__('example'):
+                                tar = (full_path, TargetType.EXAMPLE, TargetStatus.EXAMPLE)
+                                targets.add(tar)
+                            # if elem.__contains__("minimum"):
+                            #     targets.add((full_path, TargetType.NUM, TargetStatus.MIN))
+                            # if elem.__contains__("maximum"):
+                            #     targets.add((full_path, TargetType.NUM, TargetStatus.MAX))
+                            # if elem.__contains__("minimum") and elem.__contains__("maximum"):
+                            #     targets.add((full_path, TargetType.NUM, TargetStatus.MIDDLE))
+                        elif element_type == 'number':
+                            if elem.__contains__('example'):
+                                tar = (full_path, TargetType.EXAMPLE, TargetStatus.EXAMPLE)
+                                targets.add(tar)
+                            # if elem.__contains__("minimum"):
+                            #     targets.add((full_path, TargetType.NUM, TargetStatus.MIN))
+                            # if elem.__contains__("maximum"):
+                            #     targets.add((full_path, TargetType.NUM, TargetStatus.MAX))
+                            # if elem.__contains__("minimum") and elem.__contains__("maximum"):
+                            #     targets.add((full_path, TargetType.NUM, TargetStatus.MIDDLE))
+                        # elif element_type == 'object':
+                        #     pass
+                        # else:
+                        #     print()
 
-                    # TODO: support other content type
-                    break
-
+                    # for property in elem.keys():
+                    #     item = elem[property]
+                    #     if isinstance(item, dict):
+                    #         queue.append((prefix, item))
         else:
-            parameter_name: str = parameter_body["name"]
-            self.recursive_parse_parameter(
-                parameter_name=parameter_name,
-                parameter_body=parameter_body,
-                parent_path="",
-                parent_attribute=None,
-                parent_required=parameter_body.get("required", False),
-            )
-
-    def recursive_parse_parameter(
-            self,
-            parameter_name: str,
-            parameter_body: dict,
-            parent_path: str,
-            parent_attribute: ParameterAttribute,
-            parent_required: bool,
-    ):
-        parameter_name: str = parameter_name
-        parameter_path: str = (
-            f"{parent_path}.{parameter_name}" if parent_path else parameter_name
-        )
-
-        # check array notation
-        if parameter_name == ARRAY_NOTATION:
-            parameter_path = f"{parent_path}{parameter_name}"
-            if parent_attribute.parameter_type == ParameterType.ARRAY:
-                parameter_name = f"{parent_attribute.attribute_name}{parameter_name}"
-
-        parameter_attribute = ParameterAttribute(
-            attribute_name=parameter_name,
-            attribute_path=parameter_path,
-            parameter=self,
-            parameter_attribute_raw_body=parameter_body,
-        )
-
-        # root parameter
-        if parent_attribute is None:
-            self.parameter = parameter_attribute
-            self.required = parent_required
-            parameter_attribute.required = parent_required
-            parameter_attribute.global_required = parent_required
-        else:
-            parameter_attribute.required = parameter_body.get("required", False)
-            parameter_attribute.global_required = (
-                    parent_required and parameter_body.get("required", False)
-            )
-            parent_attribute.add_child_parameter_attribute(parameter_attribute)
-            parameter_attribute.set_parent_parameter_attribute(parent_attribute)
-
-        if parameter_attribute.parameter_type == ParameterType.ARRAY:
-            parameter_body_items: dict = (
-                parameter_body["items"]
-                if parameter_body.__contains__("items")
-                else parameter_body["schema"]["items"]
-            )
-            child_parameter = self.recursive_parse_parameter(
-                parameter_name=ARRAY_NOTATION,
-                parameter_body=parameter_body_items,
-                parent_path=f"{parameter_path}",
-                parent_attribute=parameter_attribute,
-                parent_required=parameter_attribute.global_required,
-            )
-        elif parameter_attribute.parameter_type == ParameterType.OBJECT:
-            required_list: List[str] = parameter_body.get("required", [])
-            properties: dict = parameter_body.get("properties", {})
-            if parameter_body.__contains__("allOf"):
-                all_of: List[dict] = parameter_body.get("allOf", [])
-                for all_of_item in all_of:
-                    if all_of_item.__contains__("properties"):
-                        properties.update(all_of_item.get("properties", {}))
-                    if all_of_item.__contains__("required"):
-                        required_list.extend(all_of_item.get("required", []))
-            children: List[ParameterAttribute] = []
-
-            # iterate property
-            for property_name in properties:
-                property_body: dict = properties[property_name]
-                is_required = property_name in required_list
-                child_attribute = self.recursive_parse_parameter(
-                    parameter_name=property_name,
-                    parameter_body=property_body,
-                    parent_path=parameter_path,
-                    parent_attribute=parameter_attribute,
-                    parent_required=parameter_attribute.global_required,
-                )
-                child_attribute.required = is_required
-                child_attribute.global_required = (
-                        parameter_attribute.global_required and is_required
-                )
-                children.append(child_attribute)
-
-            # add sibling
-            for child in children:
-                for sibling in children:
-                    if child != sibling:
-                        child.add_sibling_parameter_attribute(sibling)
-
-        elif parameter_attribute.parameter_type in (
-                ParameterType.STRING,
-                ParameterType.BOOLEAN,
-                ParameterType.INTEGER,
-                ParameterType.NUMBER,
-                ParameterType.FILE,
-        ):
-            pass
-        else:
-            raise NotImplementedError(
-                f"parameter type {parameter_attribute.parameter_type} is not supported yet"
-            )
-
-        self.add_attribute_attribute(parameter_attribute)
-        return parameter_attribute
-
-    def add_attribute_attribute(self, attribute_attribute: ParameterAttribute):
-        if attribute_attribute.attribute_path in self.attribute_dict:
-            raise Exception(
-                f"attribute path {attribute_attribute.attribute_path} already exists"
-            )
-        if attribute_attribute.attribute_path == "":
             return
-        logger.info(
-            f"add attribute location: {self.location}, attribute: {attribute_attribute.signature}"
-        )
-        self.attribute_dict[attribute_attribute.attribute_path] = attribute_attribute
 
-    @property
-    def signature(self):
-        return f"method({self.method.signature})_name({self.name})_location({self.location.value})"
+    def get_canonical_name(self, name):
+        stemmer = SnowballStemmer("english")
+        stemmed_word = stemmer.stem(name)
+        return stemmed_word
 
-    def __repr__(self):
-        return f"{self.signature}"
+    def tokenize_method_path(self, method_path: str):
+        tokens = method_path.split('/')
+        result = []
+        version_result = []
+        has_version = False
+        pattern = re.compile('^v[0-9]+$')
+        for token in tokens:
+            # filter in path parameter
+            if '{' in token:
+                continue
+
+            # remove empty string
+            if len(token) == 0:
+                continue
+            # check whether has version
+            if pattern.match(token) is not None:
+                has_version = True
+                continue
+            token = self.get_canonical_name(token)
+            # ignore base path for service
+            if has_version:
+                version_result.append(token)
+            else:
+                result.append(token)
+        if has_version and len(version_result) > 0:
+            return version_result
+        return result
+
+    def tokenize_attribute_path(self, attribute_path: str):
+
+        if len(attribute_path) == 0:
+            return ''
+        tokens = attribute_path.replace('[0]', '').split('.')
+        result = []
+        for token in tokens:
+            if len(token) == 0:
+                continue
+            result.append(self.get_canonical_name(token))
+        return result[-1]
+
+    def attribute_should_extend(self, attribute_name):
+        targets = ['id', 'name']
+        name = self.get_canonical_name(attribute_name)
+        return name in targets
+
+    def __str__(self):
+        return f'({self.name}, {self.schema})'
