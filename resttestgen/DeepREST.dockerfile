@@ -26,7 +26,7 @@ RUN uv sync --frozen --no-install-project --no-dev
 # Stage 3: Runtime (Stable Baslines 3 Python + RestTestGen Java)
 FROM ghcr.io/restberus/python:3.14.5-debian-13.5-slim-jre17 AS runtime
 
-ENV JAVA_TOOL_OPTIONS="-XX:+UseSerialGC -XX:+UseContainerSupport -Xmx512m -Xms512m"
+ENV JAVA_TOOL_OPTIONS="-XX:+UseSerialGC -XX:+UseContainerSupport -Xmx768m -Xms768m"
 
 WORKDIR /tool
 
