@@ -447,7 +447,11 @@ class RestlerSettings(object):
         ##  Ignore request dependencies
         self._ignore_dependencies = SettingsArg('ignore_dependencies', bool, False, user_args)
         ##  Re-create the connection for every request sent.
-        self._reconnect_on_every_request = SettingsArg('reconnect_on_every_request', bool, False, user_args)
+        ##  Defaulted to True for restberus: target services sit behind an Istio
+        ##  sidecar that returns "Connection: close" on rejected requests; reusing a
+        ##  closed socket triggers ~1s reset/retry stalls. Reconnecting per request
+        ##  avoids that. May still be overridden via a per-run settings file.
+        self._reconnect_on_every_request = SettingsArg('reconnect_on_every_request', bool, True, user_args)
         ## Ignore server-side feedback
         self._ignore_feedback = SettingsArg('ignore_feedback', bool, False, user_args)
         ## Include user agent in requests sent
