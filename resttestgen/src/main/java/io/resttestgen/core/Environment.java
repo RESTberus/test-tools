@@ -54,7 +54,7 @@ public class Environment {
         this.globalRequestDictionary = new Dictionary();
         this.partialDictionary = new Dictionary();
         
-        long seed = configuration.getRandomSeed()
+        long seed = configuration.getRandomSeed();
 
         if (seed == -1) {
             this.random = new ExtendedRandom();
