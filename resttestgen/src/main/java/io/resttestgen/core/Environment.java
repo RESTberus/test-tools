@@ -53,7 +53,17 @@ public class Environment {
         this.globalResponseDictionary = new Dictionary();
         this.globalRequestDictionary = new Dictionary();
         this.partialDictionary = new Dictionary();
-        this.random = new ExtendedRandom(configuration.getRandomSeed());
+        
+        long seed = configuration.getRandomSeed()
+
+        if (seed == -1) {
+            this.random = new ExtendedRandom();
+        }
+        else {
+            this.random = new ExtendedRandom(seed);
+        }
+
+        
         this.experience = new Experience();
 
         return this;
