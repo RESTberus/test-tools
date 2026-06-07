@@ -35,17 +35,7 @@ import static io.resttestgen.core.datatype.parameter.ParameterUtils.isArrayOfLea
 public class ExperienceFuzzer extends Fuzzer {
 
     private static final Logger logger = LogManager.getLogger(ExperienceFuzzer.class);
-    private static final ExtendedRandom random;
-    static {
-        long seed = 42;
-        String envSeed = System.getenv("RANDOM_SEED");
-        if (envSeed != null) {
-            try {
-                seed = Long.parseLong(envSeed);
-            } catch (NumberFormatException ignored) {}
-        }
-        random = new ExtendedRandom(seed);
-    }
+    private static final ExtendedRandom random = Environment.getInstance().getRandom();
     private static final Experience experience = Environment.getInstance().getExperience();
     private static final double epsilon = 0.1;
 
