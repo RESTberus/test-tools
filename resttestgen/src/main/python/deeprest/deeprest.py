@@ -5,10 +5,11 @@ import numpy as np
 import os
 import gc
 
-seed = os.getenv('RANDOM_SEED', '42')
-seed = int(seed)
-random.seed(seed)
-np.random.seed(seed)
+seed = os.getenv('RANDOM_SEED')
+if seed is not None:
+    seed = int(seed)
+    random.seed(seed)
+    np.random.seed(seed)
 
 gc.enable()
 

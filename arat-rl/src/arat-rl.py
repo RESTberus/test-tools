@@ -737,8 +737,10 @@ def main():
 
 if __name__ == "__main__":
     # Standardize random seed
-    RANDOM_SEED = int(os.environ.get("RANDOM_SEED", 42))
-    random.seed(RANDOM_SEED)
+    seed = os.environ.get("RANDOM_SEED")
+    if seed is not None:
+        seed = int(seed)
+        random.seed(seed)
 
     base_url = sys.argv[2]
     EPSILON = [0.1]

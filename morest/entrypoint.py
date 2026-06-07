@@ -14,19 +14,6 @@ TIME_BUDGET_SECONDS) and RANDOM_SEED.
 import os
 import sys
 
-# Reproducibility (1/2): Python randomizes str/bytes hashing per process (PYTHONHASHSEED),
-# which changes set/dict iteration order and therefore the order in which Morest consumes its
-# (seeded) random draws -- so seeding alone is NOT reproducible. PYTHONHASHSEED can only be set
-# before interpreter startup, so derive it from RANDOM_SEED and re-exec the interpreter once.
-_run_seed = os.environ.get("RANDOM_SEED", "42")
-try:
-    _hash_seed = str(int(_run_seed) % (2**32))
-except ValueError:
-    _hash_seed = "0"
-if os.environ.get("PYTHONHASHSEED") != _hash_seed:
-    os.environ["PYTHONHASHSEED"] = _hash_seed
-    os.execv(sys.executable, [sys.executable, *sys.argv])
-
 import random  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -49,13 +36,11 @@ def default_reclimit_handler(limit, parsed_url, recursions=()):
 
 
 def main():
-    # Reproducibility (2/2): seed every RNG BEFORE any randomness. Morest's randomness flows
-    # solely through the numpy legacy global (``np.random.*``) and the stdlib ``random`` global
-    # -- single-threaded, no per-instance RNG -- so these two calls cover every stochastic draw.
-    # (The original tool never seeded at all.)
-    seed = int(os.environ.get("RANDOM_SEED", "42"))
-    random.seed(seed)
-    np.random.seed(seed)
+    seed = os.environ.get("RANDOM_SEED")
+    if seed is not None:
+        seed = int(seed)
+        random.seed(seed)
+        np.random.seed(seed)
 
     spec_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("SPEC_PATH", "/app/spec.json")
     base_url = sys.argv[2] if len(sys.argv) > 2 else os.environ["TARGET_URL"]
