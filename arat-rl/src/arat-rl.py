@@ -18,7 +18,7 @@ from collections import defaultdict
 # Per-request timeout (seconds). Without it, a single slow/hung response blocks
 # the whole fuzzing loop indefinitely (requests has no default timeout), which
 # caps the run at a handful of requests over the entire time budget.
-REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "10"))
+REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "5"))
 
 
 
@@ -411,19 +411,25 @@ def report_http_500_errors():
 
 def update_q_table(q_table, alpha, gamma, selected_operation, selected_parameters, response, path, query_params, body_params):
     operation_id = selected_operation['operation_id']
+    src = ss[0]  # value source used this iteration; None when the operation has no parameters
+
+    def reward_source(delta):
+        if src is not None:
+            q_value[operation_id][src] = q_value[operation_id][src] + delta
+
     if response is None:
         reward = -10
-        q_value[operation_id][ss[0]] = q_value[operation_id][ss[0]] - 1
-    if response.status_code == 401:
+        reward_source(-1)
+    elif response.status_code == 401:
         reward = -1
     elif 200 <= response.status_code < 300:
-        q_value[operation_id][ss[0]] = q_value[operation_id][ss[0]] + 1
+        reward_source(1)
         reward = -1
     elif 400 <= response.status_code:
-        q_value[operation_id][ss[0]] = q_value[operation_id][ss[0]] - 1
+        reward_source(-1)
         reward = 1
     else:
-        q_value[operation_id][ss[0]] = q_value[operation_id][ss[0]] - 1
+        reward_source(-1)
         reward = -5
 
     if response.status_code == 500:
