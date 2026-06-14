@@ -1,4 +1,4 @@
-FROM ghcr.io/restberus/python:3.14.5-alpine-3.23 AS builder
+FROM python:3.10.20-alpine3.24 AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -29,7 +29,7 @@ ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 RUN uv sync --no-install-project --no-dev
 
 # Runtime stage
-FROM ghcr.io/restberus/python:3.14.5-alpine-3.23 AS runner
+FROM python:3.10.20-alpine3.24 AS runner
 
 WORKDIR /app
 
