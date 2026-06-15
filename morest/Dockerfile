@@ -1,7 +1,7 @@
 # Original Morest ("api-fuzzer-hw") algorithm, modernized to Python 3.11 and deterministically
 # seeded, packaged for restberus. Debian slim (not alpine) so the deps resolve to manylinux
 # wheels on both linux/amd64 and linux/arm64. Dependencies are managed with uv + uv.lock.
-FROM python:3.11-slim AS builder
+FROM python:3.9-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /uvx /bin/
 
@@ -19,7 +19,7 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev
 
 # Runtime stage
-FROM python:3.11-slim AS runtime
+FROM python:3.9-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

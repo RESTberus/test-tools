@@ -1,34 +1,15 @@
 [project]
 name = "morest"
 version = "1.0.0"
-description = "Original Morest (api-fuzzer-hw) REST API fuzzer, modernized to Python 3.11 and deterministically seeded for restberus."
-requires-python = ">=3.11"
-# Only the packages actually imported by the retained Morest modules. The original
-# requirements.txt also pulled scipy/scikit-learn/dpkt/six/click/etc. that this code never
-# imports. numpy is pinned <2 to avoid removed-alias APIs while preserving the legacy
-# np.random stream (NEP-19), keeping seeded runs reproducible.
+description = "Morest (api-fuzzer-hw) REST API fuzzer."
+requires-python = "~=3.9.0"
 dependencies = [
-    "numpy>=1.26,<2",
-    "requests>=2.28",
-    "prance>=23.6.21.0",
-    "openapi-spec-validator>=0.7",
-    "nltk>=3.8",
-    "editdistance>=0.6",
-    "graphviz>=0.20",
-    "rstr>=3.2",
-    "pydblite>=3.0.4",
-    "flex>=6.14.1",
-    # flex imports pkg_resources at runtime; uv doesn't seed setuptools into the venv. Pin <80
-    # so pkg_resources is still present (it is being removed from newer setuptools).
+    "prance>=0.19.0",
+    "openapi-spec-validator==0.3.3",
+    "openapi-schema-validator==0.1.6",
     "setuptools<80",
 ]
 
 [tool.uv]
-# This is a flat-module application (no package build); uv only manages the dependency venv.
 package = false
 
-[tool.uv.extra-build-dependencies]
-# pydblite 3.0.4 (pure-Python, last released 2017) has an sdist-only setup.py that imports
-# `setuptools.command.register`, removed in setuptools 74. Build it with an older setuptools;
-# the package itself runs fine on Python 3.11.
-pydblite = ["setuptools<73"]
