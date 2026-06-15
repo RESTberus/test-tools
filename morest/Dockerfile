@@ -15,6 +15,8 @@ WORKDIR /tool
 # Install the locked dependencies only (package=false -> no project build), so this layer is
 # cached unless the lock changes. pydblite's legacy sdist is built here with setuptools<73
 # (pinned via [tool.uv.extra-build-dependencies] in pyproject.toml).
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev
 
