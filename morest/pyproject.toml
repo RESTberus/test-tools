@@ -4,12 +4,26 @@ version = "1.0.0"
 description = "Morest (api-fuzzer-hw) REST API fuzzer."
 requires-python = "~=3.9.0"
 dependencies = [
-    "prance>=0.19.0",
+    "prance==0.19.0",
     "openapi-spec-validator==0.3.3",
     "openapi-schema-validator==0.1.6",
+    "numpy==1.19.5",
+    "scipy==1.5.4",
+    "scikit-learn>=0.24,<1",
+    "requests==2.24.0",
+    "nltk==3.6.3",
+    "editdistance==0.5.3",
+    "graphviz==0.14.2",
+    "rstr==2.2.6",
+    "pydblite>=3.0.4",
+    "flex==6.14.1",
+    "dpkt==1.9.8",
     "setuptools<80",
 ]
 
 [tool.uv]
 package = false
+
+[tool.uv.extra-build-dependencies]
+pydblite = ["setuptools<73"]
 
