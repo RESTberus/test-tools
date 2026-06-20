@@ -9,12 +9,9 @@ RUN groupadd --gid 1000 --system schemathesis && \
 
 COPY --chown=1000:1000 pyproject.toml README.md src ./
 
-# All runtime dependencies ship free-threaded (cp314t) wheels, so no build
-# toolchain is required. PYTHON_GIL=0 keeps the interpreter free-threaded.
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir ./
 
-# Needed for the `.hypothesis` directory
 RUN chown -R 1000:1000 /app
 
 USER schemathesis

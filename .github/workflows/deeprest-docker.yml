@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - "resttestgen/**"
+      - "deeprest/**"
       - ".github/workflows/deeprest-docker.yml"
 
 permissions:
@@ -59,8 +59,8 @@ jobs:
         env:
           SOURCE_DATE_EPOCH: 0
         with:
-          context: ./resttestgen
-          file: ./resttestgen/DeepREST.dockerfile
+          context: ./deeprest
+          file: ./deeprest/Dockerfile
           push: true
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
           cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}
