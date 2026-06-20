@@ -13,12 +13,9 @@ import io.resttestgen.implementation.fuzzer.NominalFuzzer;
 import io.resttestgen.implementation.operationssorter.DeepReinforcementLearningOperationsSorter;
 import io.resttestgen.implementation.operationssorter.RandomOperationsSorter;
 import io.resttestgen.implementation.strategy.configuration.DeepReinforcementLearningStrategyConfiguration;
-import io.resttestgen.implementation.writer.ReportWriter;
-import io.resttestgen.implementation.writer.RestAssuredWriter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.util.HashSet;
 
 @SuppressWarnings("unused")
@@ -69,16 +66,14 @@ public class DeepReinforcementLearningStrategy extends Strategy {
             StatusCodeOracle statusCodeOracle = new StatusCodeOracle();
             statusCodeOracle.assertTestSequence(nominalSequence);
 
-            // Write report to file
-            try {
-                ReportWriter reportWriter = new ReportWriter(nominalSequence);
-                reportWriter.write();
-                RestAssuredWriter restAssuredWriter = new RestAssuredWriter(nominalSequence);
-                restAssuredWriter.write();
-            } catch (IOException e) {
-                logger.warn("Could not write report to file.");
-                e.printStackTrace();
-            }
+            // restberus patch: the per-iteration ReportWriter (JSON) and RestAssuredWriter
+            // (JUnit/REST-assured) disk writes are removed. They only produce offline
+            // artifacts that restberus never consumes (it measures the SUT via its proxy),
+            // and RestAssuredWriter.operationsInitialization recurses over the operation
+            // dependency graph without a visited-set guard, spinning at ~100% CPU for hours
+            // on rich-ODG APIs (languagetool, features-service, some restcountries seeds)
+            // and starving the RL loop. The older restgym/deeprest-tool:1.0.0 jar likewise
+            // does not call these writers in the strategy loop.
 
             DeepReinforcementLearningProxy.sendResult(statusCode);
 
