@@ -1,0 +1,40 @@
+[project]
+name = "autoresttest"
+version = "0.1.0"
+description = "AutoRestTest: a multi-agent reinforcement-learning REST API testing tool."
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "scikit-learn==1.5.0",
+    "numpy==1.25.2",
+    "scipy==1.10.1",
+    "gensim==4.3.2",
+    "openai==1.109.1",
+    "beautifulsoup4==4.12.3",
+    "python-dotenv==1.0.1",
+    "pydantic==2.7.1",
+    "prance==23.6.21.0",
+    "openapi-spec-validator==0.7.1",
+    "tomli==2.0.1",
+    "httpx<0.28",
+    "tqdm>=4.66",
+    "rich>=13.7",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.0,<2.0.0",
+    "pyright>=1.1.407,<2.0.0",
+]
+
+[tool.uv]
+# Dependencies-only install (like the other python tools in this repo); the
+# autoresttest package itself is run from source via PYTHONPATH, not built.
+package = false
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingTypeStubs = false
