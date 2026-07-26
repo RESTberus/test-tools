@@ -14,7 +14,7 @@ permissions:
   packages: write
 
 env:
-  PLATFORMS: linux/amd64,linux/arm64
+  PLATFORMS: linux/amd64
   IMAGE_NAME: restest
   IMAGE_TAG: latest
 

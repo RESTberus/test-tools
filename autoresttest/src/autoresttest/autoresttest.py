@@ -1,10 +1,13 @@
 import argparse
 import json
+import os
+import random
 import shelve
 import sys
 from pathlib import Path
 from typing import Optional, Union
 
+import numpy as np
 from dotenv import load_dotenv
 
 from autoresttest.config import get_config
@@ -32,6 +35,24 @@ load_dotenv()
 AUTORESTTEST_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = AUTORESTTEST_DIR.parent.parent
 DATA_ROOT = PROJECT_ROOT / "data"
+
+
+def seed_rngs() -> None:
+    """Seed the global RNGs from RANDOM_SEED, which restberus injects per run.
+
+    The agents draw from both ``random`` (action/value selection) and ``np.random``
+    (agent selection in the MARL loop); the combination sampler is seeded separately
+    via ``combination_seed`` in config.py.
+    """
+    env_seed = os.environ.get("RANDOM_SEED")
+    if env_seed is None:
+        return
+    try:
+        seed = int(env_seed)
+    except ValueError:
+        return
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 def ensure_output_dir(spec_name: str) -> Path:
@@ -501,6 +522,8 @@ class AutoRestTest:
 
 def main():
     args = parse_args()
+
+    seed_rngs()
 
     # Initialize TUI (always enabled)
     tui = TUIDisplay(width=args.width)

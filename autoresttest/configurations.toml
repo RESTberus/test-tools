@@ -45,6 +45,7 @@ max_total_combinations = 3000
 base_samples_per_size = 200
 
 # Seed for reproducible combination sampling. Change to get different random samples.
+# Overridden by the RANDOM_SEED environment variable when set.
 combination_seed = 42
 
 [agent.value]

@@ -186,7 +186,18 @@ def _load_raw_config() -> Dict[str, Any]:
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"Configuration file not found: {CONFIG_PATH}")
     with CONFIG_PATH.open("rb") as fh:
-        return tomllib.load(fh)
+        raw = tomllib.load(fh)
+
+    # restberus injects RANDOM_SEED per run; it wins over the toml value so that
+    # combination sampling follows the run seed. See seed_rngs() in autoresttest.py.
+    env_seed = os.environ.get("RANDOM_SEED")
+    if env_seed is not None:
+        try:
+            raw.setdefault("agent", {})["combination_seed"] = int(env_seed)
+        except ValueError:
+            pass
+
+    return raw
 
 
 @lru_cache(maxsize=1)
