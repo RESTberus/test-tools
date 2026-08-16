@@ -15,8 +15,6 @@ import io.resttestgen.implementation.oracle.StatusCodeOracle;
 import io.resttestgen.implementation.strategy.configuration.DeepReinforcementLearningStrategyConfiguration;
 import io.resttestgen.implementation.writer.CoverageReportWriter;
 import io.resttestgen.implementation.writer.HtmlReportWriter;
-import io.resttestgen.implementation.writer.ReportWriter;
-import io.resttestgen.implementation.writer.RestAssuredWriter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -77,9 +75,18 @@ public class DeepRestStrategy extends Strategy {
                 // Fallback
                 statusCode = new HttpStatusCode(400);
             }
+            // restberus patch: the per-iteration ReportWriter (JSON) and RestAssuredWriter
+            // (JUnit/REST-assured) disk writes are removed. They only produce offline
+            // artifacts that restberus never consumes (it measures the SUT via its proxy),
+            // and RestAssuredWriter.operationsInitialization recurses over the operation
+            // dependency graph without a visited-set guard, spinning at ~100% CPU for hours
+            // on rich-ODG APIs (languagetool, features-service, some restcountries seeds)
+            // and starving the RL loop. The older restgym/deeprest-tool:1.0.0 jar likewise
+            // does not call these writers in the strategy loop.
+            statusCodeOracle.assertTestSequence(nominalSequence);
+
             DeepReinforcementLearningProxy.sendResult(statusCode);
             testSequencesToReport.add(nominalSequence);
-            writeTestSequenceReport(nominalSequence);
 
             // In case of successful interaction, invoke intensification testing, but only the first time, and then with
             // a low probability. Of course, only if intensification is enabled by configuration
@@ -94,7 +101,6 @@ public class DeepRestStrategy extends Strategy {
                     intensificatedOperations.add(operationToTest);
 
                     testSequencesToReport.addAll(intensificatedSequences);
-                    intensificatedSequences.forEach(this::writeTestSequenceReport);
 
                     logger.info("Intensification completed. Continuing with testing.");
                 }
@@ -112,18 +118,6 @@ public class DeepRestStrategy extends Strategy {
 
         htmlReportWriter.populateCoverageCollection(TestRunner.getInstance().getCoverage());
         injectTestSequenceData(htmlReportWriter, testSequencesToReport);
-    }
-
-    private void writeTestSequenceReport(TestSequence testSequence) {
-        try {
-            statusCodeOracle.assertTestSequence(testSequence);
-            ReportWriter reportWriter = new ReportWriter(testSequence);
-            reportWriter.write();
-            RestAssuredWriter restAssuredWriter = new RestAssuredWriter(testSequence);
-            restAssuredWriter.write();
-        } catch (IOException e) {
-            logger.warn("Could not write test sequence report to file.", e);
-        }
     }
 
     private HtmlReportWriter initializeHtmlReportWriter() {
