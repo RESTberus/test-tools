@@ -16,33 +16,33 @@ repositories {
 }
 
 dependencies {
-    implementation 'org.apache.logging.log4j:log4j-core:2.19.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.26.1'
 
-    implementation 'com.google.code.gson:gson:2.10'
-    implementation 'org.yaml:snakeyaml:2.0'
+    implementation 'com.google.code.gson:gson:2.14.0'
+    implementation 'org.yaml:snakeyaml:2.6'
 
-    implementation 'com.google.guava:guava:31.1-jre'
+    implementation 'com.google.guava:guava:33.7.1-jre'
 
-    implementation 'org.jgrapht:jgrapht-core:1.5.1'
-    implementation 'org.jgrapht:jgrapht-io:1.5.1'
+    implementation 'org.jgrapht:jgrapht-core:1.5.3'
+    implementation 'org.jgrapht:jgrapht-io:1.5.3'
 
-    implementation 'com.squareup.okhttp3:okhttp:4.10.0'
+    implementation 'com.squareup.okhttp3:okhttp:5.5.0'
 
-    implementation 'org.apache.opennlp:opennlp-tools:1.9.4'
-    implementation 'com.jayway.jsonpath:json-path:2.7.0'
+    implementation 'org.apache.opennlp:opennlp-tools:2.5.11'
+    implementation 'com.jayway.jsonpath:json-path:3.0.0'
 
     implementation 'com.github.mifmif:generex:1.0.2'
-    implementation 'org.iban4j:iban4j:3.2.3-RELEASE'
+    implementation 'org.iban4j:iban4j:3.2.14-RELEASE'
 
-    implementation 'nz.ac.waikato.cms.weka:weka-stable:3.8.6'
+    implementation 'nz.ac.waikato.cms.weka:weka-stable:3.8.7'
 
-    implementation 'dev.langchain4j:langchain4j-open-ai:1.9.1'
-    implementation 'dev.langchain4j:langchain4j:1.9.1'
-    implementation 'dev.langchain4j:langchain4j-http-client-jdk:1.9.1'
-    implementation 'org.slf4j:slf4j-nop:2.0.17'
+    implementation 'dev.langchain4j:langchain4j-open-ai:1.19.0'
+    implementation 'dev.langchain4j:langchain4j:1.19.0'
+    implementation 'dev.langchain4j:langchain4j-http-client-jdk:1.19.0'
+    implementation 'org.slf4j:slf4j-nop:2.0.18'
 
-    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.0'
-    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.9.0'
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:6.1.3'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:6.1.3'
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
